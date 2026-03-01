@@ -16,6 +16,7 @@ NexusFS is a single-executable, verifiable distributed file system for edge and 
 
 ## Documentation Map
 
+- [Current Status](./current-status.md): what is implemented now and what remains in backlog
 - [Getting Started](./getting-started.md): build, run, and inspect the daemon
 - [Architecture Overview](./architecture.md): the crate layout and system invariants
 - [Protocol and Replication](./protocol-and-replication.md): operation flow, peer sync, and proof boundaries
