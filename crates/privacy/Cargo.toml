@@ -1,0 +1,12 @@
+[package]
+name = "nexusfs-privacy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Privacy primitives for NexusFS (padding, cover traffic, etc.)"
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+tokio.workspace = true
+tracing.workspace = true

@@ -1,0 +1,15 @@
+[package]
+name = "nexusfs-energy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Energy telemetry and replication scheduling for NexusFS"
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+
+nexusfs-storage = { path = "../storage" }
+

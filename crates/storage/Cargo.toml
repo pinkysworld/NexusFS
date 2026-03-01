@@ -1,0 +1,21 @@
+[package]
+name = "nexusfs-storage"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Storage traits and backends for NexusFS"
+
+[features]
+default = ["sled"]
+sled = ["dep:sled"]
+rocksdb = ["dep:rocksdb"]
+
+[dependencies]
+anyhow.workspace = true
+bytes.workspace = true
+tracing.workspace = true
+sled = { workspace = true, optional = true }
+rocksdb = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile.workspace = true

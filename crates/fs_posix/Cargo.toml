@@ -1,0 +1,18 @@
+[package]
+name = "nexusfs-fs-posix"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "POSIX FUSE mount for NexusFS (skeleton)"
+
+[features]
+default = []
+posix = ["dep:fuser"]
+
+[dependencies]
+anyhow.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+fuser = { version = "0.14", optional = true }
+
+nexusfs-core = { path = "../core" }

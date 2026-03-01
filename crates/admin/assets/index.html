@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>NexusFS Admin</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin: 24px; }
+      .row { display: flex; gap: 16px; flex-wrap: wrap; }
+      .card { border: 1px solid #ddd; border-radius: 10px; padding: 16px; min-width: 320px; }
+      code { background: #f6f6f6; padding: 2px 6px; border-radius: 6px; }
+      input { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc; }
+      button { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc; cursor: pointer; }
+      .muted { color: #666; }
+      pre { white-space: pre-wrap; word-break: break-word; }
+    </style>
+  </head>
+  <body>
+    <h1>NexusFS Admin</h1>
+    <p class="muted">Embedded console (skeleton). More panels are added per research track.</p>
+
+    <div class="card">
+      <div><strong>Admin token</strong> (optional in dev)</div>
+      <div style="margin-top:8px;">
+        <input id="token" placeholder="x-nexusfs-token" style="width: 280px;" />
+        <button onclick="window.NX.refresh()">Refresh</button>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top: 16px;">
+      <div class="card">
+        <h3>Node status</h3>
+        <div>Device: <code id="device">...</code></div>
+        <div>Head: <code id="head">...</code></div>
+        <div>Now: <code id="now">...</code></div>
+      </div>
+
+      <div class="card">
+        <h3>Oplog summary</h3>
+        <pre id="oplog">...</pre>
+      </div>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

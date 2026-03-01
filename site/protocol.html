@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NexusFS Protocol And Replication</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-page="protocol">
+    <div class="page-shell">
+      <header class="site-header">
+        <a class="brand" href="./index.html">
+          <span class="brand-mark">N</span>
+          <span>NexusFS</span>
+        </a>
+        <nav class="site-nav" aria-label="Primary">
+          <a href="./index.html">Home</a>
+          <a href="./docs.html">Docs</a>
+          <a href="./architecture.html">Architecture</a>
+          <a href="./roadmap.html">Roadmap</a>
+        </nav>
+      </header>
+
+      <main>
+        <section class="hero hero-compact reveal">
+          <div class="hero-copy">
+            <p class="eyebrow">Protocol And Replication</p>
+            <h1>Intent first, payload second.</h1>
+            <p class="lede">
+              NexusFS synchronizes signed operation knowledge before bulk data. That
+              makes the system more resilient to partial connectivity, delayed blob
+              availability, and audit-oriented verification.
+            </p>
+          </div>
+        </section>
+
+        <section class="section reveal">
+          <div class="card-grid">
+            <article class="feature-card">
+              <h3>Handshake</h3>
+              <p>Peers negotiate identity, features, and the initial trust posture.</p>
+            </article>
+            <article class="feature-card">
+              <h3>Clock Summary</h3>
+              <p>Each side advertises the highest observed operation counters by device.</p>
+            </article>
+            <article class="feature-card">
+              <h3>Ops Batch</h3>
+              <p>Missing operations move first so replicas can understand intended state.</p>
+            </article>
+            <article class="feature-card">
+              <h3>Blob Fetch</h3>
+              <p>Referenced chunk data is requested only when the receiving side needs it.</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="section reveal">
+          <div class="content-panel">
+            <h2>Verification pipeline</h2>
+            <ul class="list-block">
+              <li>Verify the operation signature.</li>
+              <li>Check referenced object and blob hashes.</li>
+              <li>Apply policy checks before accepting state.</li>
+              <li>Validate the configured proof mode when enabled.</li>
+              <li>Store and apply the operation idempotently.</li>
+            </ul>
+          </div>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <p>Replication built around deterministic, verifier-first state transfer.</p>
+        <p>© <span id="year"></span> NexusFS</p>
+      </footer>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

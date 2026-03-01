@@ -1,0 +1,22 @@
+[package]
+name = "nexusfs-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Core objects and local state for NexusFS"
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+postcard.workspace = true
+bytes.workspace = true
+blake3.workspace = true
+time.workspace = true
+tracing.workspace = true
+
+nexusfs-storage = { path = "../storage" }
+nexusfs-proto = { path = "../proto" }
+nexusfs-crdt = { path = "../crdt" }
+
+[dev-dependencies]
+tempfile.workspace = true

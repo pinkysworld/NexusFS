@@ -1,0 +1,25 @@
+[package]
+name = "nexusfs-net"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Networking and replication for NexusFS (QUIC)"
+
+[features]
+default = []
+
+[dependencies]
+anyhow.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+bytes.workspace = true
+postcard.workspace = true
+quinn.workspace = true
+rustls.workspace = true
+rcgen.workspace = true
+
+nexusfs-proto = { path = "../proto" }
+nexusfs-crypto = { path = "../crypto" }
+rand.workspace = true
+serde.workspace = true
+

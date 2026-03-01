@@ -1,0 +1,38 @@
+[package]
+name = "nexusfs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "NexusFS single binary (skeleton)"
+
+[features]
+default = ["admin"]
+admin = ["dep:nexusfs-admin"]
+s3 = ["dep:nexusfs-s3"]
+quic = ["dep:nexusfs-net"]
+posix = ["dep:nexusfs-fs-posix"]
+zk = ["dep:nexusfs-zk"]
+
+[dependencies]
+anyhow.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+clap.workspace = true
+serde.workspace = true
+toml.workspace = true
+rand.workspace = true
+hex.workspace = true
+
+nexusfs-core = { path = "../core" }
+nexusfs-storage = { path = "../storage" }
+nexusfs-crypto = { path = "../crypto" }
+nexusfs-proto = { path = "../proto" }
+nexusfs-energy = { path = "../energy" }
+nexusfs-privacy = { path = "../privacy" }
+
+nexusfs-admin = { path = "../admin", optional = true }
+nexusfs-s3 = { path = "../s3", optional = true }
+nexusfs-net = { path = "../net", optional = true }
+nexusfs-fs-posix = { path = "../fs_posix", optional = true }
+nexusfs-zk = { path = "../zk", optional = true }

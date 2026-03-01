@@ -1,0 +1,30 @@
+[node]
+data_dir = "./data"
+device_name = "dev-node"
+
+[net]
+listen = "127.0.0.1:4444"
+peers = []
+tofu = true
+
+[admin]
+bind = "127.0.0.1:7070"
+# token will be generated on first start if missing
+token = ""
+
+[s3]
+enabled = false
+bind = "127.0.0.1:9000"
+
+[posix]
+enabled = false
+mountpoint = "/mnt/nexus"
+
+[security]
+encrypt_at_rest = false
+proof_mode = "transparent" # none|transparent|zk_commit|zk_full
+
+[energy]
+enabled = true
+battery_low_pct = 20
+temp_high_c = 70

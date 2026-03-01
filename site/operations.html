@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NexusFS Operations</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-page="operations">
+    <div class="page-shell">
+      <header class="site-header">
+        <a class="brand" href="./index.html">
+          <span class="brand-mark">N</span>
+          <span>NexusFS</span>
+        </a>
+        <nav class="site-nav" aria-label="Primary">
+          <a href="./index.html">Home</a>
+          <a href="./docs.html">Docs</a>
+          <a href="./architecture.html">Architecture</a>
+        </nav>
+      </header>
+
+      <main>
+        <section class="hero hero-compact reveal">
+          <div class="hero-copy">
+            <p class="eyebrow">Operations</p>
+            <h1>Built for practical deployment, even early.</h1>
+            <p class="lede">
+              NexusFS is meant to be operable as a single local process first, then
+              expanded into a networked system with stronger replication, security, and
+              scheduling policies over time.
+            </p>
+          </div>
+        </section>
+
+        <section class="section reveal">
+          <div class="card-grid">
+            <article class="feature-card">
+              <h3>Configuration</h3>
+              <p>
+                TOML config covers node identity, storage paths, admin binding, peers,
+                optional facades, security mode, and energy thresholds.
+              </p>
+            </article>
+            <article class="feature-card">
+              <h3>Runtime State</h3>
+              <p>
+                Local data includes the storage backend, generated identities, head
+                metadata, and the foundation for future peer state.
+              </p>
+            </article>
+            <article class="feature-card">
+              <h3>Admin Visibility</h3>
+              <p>
+                The embedded admin layer is the local control plane for status,
+                storage, oplog inspection, and future replication telemetry.
+              </p>
+            </article>
+            <article class="feature-card">
+              <h3>Evolution Path</h3>
+              <p>
+                The codebase is staged to keep every milestone runnable while new
+                transport, proof, and facade features arrive incrementally.
+              </p>
+            </article>
+          </div>
+        </section>
+
+        <section class="section reveal">
+          <div class="content-panel">
+            <h2>Suggested workflow</h2>
+            <ul class="list-block">
+              <li>Use the example config for local development.</li>
+              <li>Run focused crate tests during implementation.</li>
+              <li>Validate the workspace before pushing milestone changes.</li>
+              <li>Keep public docs and deep specs aligned as behavior changes.</li>
+            </ul>
+          </div>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <p>Operations guidance for the evolving NexusFS runtime.</p>
+        <p>© <span id="year"></span> NexusFS</p>
+      </footer>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

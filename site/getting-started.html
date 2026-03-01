@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NexusFS Getting Started</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-page="getting-started">
+    <div class="page-shell">
+      <header class="site-header">
+        <a class="brand" href="./index.html">
+          <span class="brand-mark">N</span>
+          <span>NexusFS</span>
+        </a>
+        <nav class="site-nav" aria-label="Primary">
+          <a href="./index.html">Home</a>
+          <a href="./docs.html">Docs</a>
+          <a href="./operations.html">Operations</a>
+        </nav>
+      </header>
+
+      <main>
+        <section class="hero hero-compact reveal">
+          <div class="hero-copy">
+            <p class="eyebrow">Getting Started</p>
+            <h1>Bring up the local core fast.</h1>
+            <p class="lede">
+              NexusFS already boots as a local-first daemon with persistent storage and
+              an embedded admin interface. The commands below are the fastest path to a
+              working system.
+            </p>
+          </div>
+        </section>
+
+        <section class="section reveal">
+          <div class="command-block">
+            <pre><code>cargo build -p nexusfs
+cargo run -p nexusfs -- daemon --config examples/nexusfs.toml
+cargo run -p nexusfs -- status --config examples/nexusfs.toml</code></pre>
+          </div>
+        </section>
+
+        <section class="section reveal">
+          <div class="content-panel">
+            <h2>What happens on first run</h2>
+            <ul class="list-block">
+              <li>The daemon opens the local storage backend.</li>
+              <li>A persistent device identity is created if missing.</li>
+              <li>An initial repository head is bootstrapped.</li>
+              <li>The admin surface starts with a generated access token.</li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="section reveal">
+          <div class="content-panel">
+            <h2>What is already implemented</h2>
+            <ul class="list-block">
+              <li>Canonical object encoding and deterministic hashing</li>
+              <li>Chunked blob storage with offsets and lengths</li>
+              <li>Persistent snapshot heads</li>
+              <li>Idempotent minimal oplog application scaffolding</li>
+            </ul>
+          </div>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <p>Fast path to a running NexusFS instance.</p>
+        <p>© <span id="year"></span> NexusFS</p>
+      </footer>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

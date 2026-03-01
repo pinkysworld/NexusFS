@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NexusFS Roadmap</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-page="roadmap">
+    <div class="page-shell">
+      <header class="site-header">
+        <a class="brand" href="./index.html">
+          <span class="brand-mark">N</span>
+          <span>NexusFS</span>
+        </a>
+        <nav class="site-nav" aria-label="Primary">
+          <a href="./index.html">Home</a>
+          <a href="./docs.html">Docs</a>
+          <a href="./protocol.html">Protocol</a>
+          <a href="./operations.html">Operations</a>
+        </nav>
+      </header>
+
+      <main>
+        <section class="hero hero-compact reveal">
+          <div class="hero-copy">
+            <p class="eyebrow">Roadmap</p>
+            <h1>Every milestone stays runnable.</h1>
+            <p class="lede">
+              NexusFS is staged as a vertical-slice project so the repository remains a
+              usable system at each step, not a pile of disconnected prototypes.
+            </p>
+          </div>
+        </section>
+
+        <section class="section reveal">
+          <div class="track-grid" id="milestone-grid"></div>
+        </section>
+
+        <section class="section reveal">
+          <div class="content-panel">
+            <h2>Near-term implementation focus</h2>
+            <ul class="list-block">
+              <li>Finish full CRDT-backed local apply in the core state machine.</li>
+              <li>Expose richer local state through the admin surface.</li>
+              <li>Bring up end-to-end oplog and blob replication between nodes.</li>
+              <li>Add encrypted chunk storage and transparent proof verification.</li>
+            </ul>
+          </div>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <p>A staged path from practical storage to deeper proof systems.</p>
+        <p>© <span id="year"></span> NexusFS</p>
+      </footer>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

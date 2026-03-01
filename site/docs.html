@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NexusFS Docs</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-page="docs">
+    <div class="page-shell">
+      <header class="site-header">
+        <a class="brand" href="./index.html">
+          <span class="brand-mark">N</span>
+          <span>NexusFS</span>
+        </a>
+        <nav class="site-nav" aria-label="Primary">
+          <a href="./index.html">Home</a>
+          <a href="./architecture.html">Architecture</a>
+          <a href="./operations.html">Operations</a>
+          <a href="./roadmap.html">Roadmap</a>
+        </nav>
+      </header>
+
+      <main>
+        <section class="hero hero-compact reveal">
+          <div class="hero-copy">
+            <p class="eyebrow">Documentation Hub</p>
+            <h1>Start here, then go deeper.</h1>
+            <p class="lede">
+              These pages provide the clean public-facing docs for NexusFS. Each page
+              distills the longer engineering specs in the repository into a more
+              navigable format.
+            </p>
+          </div>
+        </section>
+
+        <section class="section reveal">
+          <div class="docs-grid">
+            <a class="doc-card" href="./getting-started.html">
+              <span class="doc-type">Guide</span>
+              <h2>Getting Started</h2>
+              <p>Build, run, inspect the daemon, and understand the current baseline.</p>
+            </a>
+            <a class="doc-card" href="./architecture.html">
+              <span class="doc-type">Reference</span>
+              <h2>Architecture</h2>
+              <p>Understand crate boundaries, data flow, and the system invariants.</p>
+            </a>
+            <a class="doc-card" href="./protocol.html">
+              <span class="doc-type">Protocol</span>
+              <h2>Protocol And Replication</h2>
+              <p>See the oplog-first sync model, verification pipeline, and proof shape.</p>
+            </a>
+            <a class="doc-card" href="./operations.html">
+              <span class="doc-type">Operations</span>
+              <h2>Operations Guide</h2>
+              <p>Learn the runtime layout, config shape, and practical workflows.</p>
+            </a>
+            <a class="doc-card" href="./roadmap.html">
+              <span class="doc-type">Plan</span>
+              <h2>Roadmap</h2>
+              <p>Follow the staged path from local core to replication and proof systems.</p>
+            </a>
+          </div>
+        </section>
+
+        <section class="section reveal">
+          <div class="section-heading">
+            <p class="eyebrow">Canonical Source Specs</p>
+            <h2>Engineering detail lives in the repo</h2>
+          </div>
+          <div class="content-panel">
+            <p>
+              The repository also includes deeper source specifications in the
+              `docs/` and `documentation/` folders. Those markdown sources are the
+              implementation-facing companion to this public website.
+            </p>
+          </div>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <p>Public docs for the NexusFS project.</p>
+        <p>© <span id="year"></span> NexusFS</p>
+      </footer>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

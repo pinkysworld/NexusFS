@@ -1,0 +1,16 @@
+[package]
+name = "nexusfs-s3"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "S3-like HTTP API for NexusFS (subset; skeleton)"
+
+[dependencies]
+anyhow.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+axum.workspace = true
+
+nexusfs-core = { path = "../core" }
