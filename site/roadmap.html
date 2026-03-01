@@ -23,6 +23,8 @@
         <nav class="site-nav" aria-label="Primary">
           <a href="./index.html">Home</a>
           <a href="./docs.html">Docs</a>
+          <a href="./status.html">Status</a>
+          <a href="./backlog.html">Backlog</a>
           <a href="./protocol.html">Protocol</a>
           <a href="./operations.html">Operations</a>
         </nav>
@@ -46,13 +48,32 @@
 
         <section class="section reveal">
           <div class="content-panel">
-            <h2>Near-term implementation focus</h2>
+            <h2>Execution order</h2>
             <ul class="list-block">
-              <li>Finish full CRDT-backed local apply in the core state machine.</li>
-              <li>Expose richer local state through the admin surface.</li>
-              <li>Bring up end-to-end oplog and blob replication between nodes.</li>
-              <li>Add encrypted chunk storage and transparent proof verification.</li>
+              <li>Finish M1 by completing persistent local namespace state.</li>
+              <li>Ship one real external facade in M2.</li>
+              <li>Complete peer replication in M3.</li>
+              <li>Layer in encryption and transparent proofs in M4.</li>
+              <li>Add energy-aware scheduling and operational hardening next.</li>
+              <li>Leave ZK-specific work until the practical baseline is dependable.</li>
             </ul>
+          </div>
+        </section>
+
+        <section class="section reveal">
+          <div class="callout">
+            <div>
+              <p class="eyebrow">Companion Planning</p>
+              <h2>The backlog is now split out separately</h2>
+              <p>
+                The roadmap shows milestone outcomes. The backlog page shows the
+                concrete work queue required to reach them.
+              </p>
+            </div>
+            <div class="callout-actions">
+              <a class="button button-primary" href="./backlog.html">View Backlog</a>
+              <a class="button button-secondary" href="./status.html">Current Status</a>
+            </div>
           </div>
         </section>
       </main>

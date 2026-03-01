@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NexusFS Backlog</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-page="backlog">
+    <div class="page-shell">
+      <header class="site-header">
+        <a class="brand" href="./index.html">
+          <span class="brand-mark">N</span>
+          <span>NexusFS</span>
+        </a>
+        <nav class="site-nav" aria-label="Primary">
+          <a href="./index.html">Home</a>
+          <a href="./docs.html">Docs</a>
+          <a href="./status.html">Status</a>
+          <a href="./roadmap.html">Roadmap</a>
+        </nav>
+      </header>
+
+      <main>
+        <section class="hero hero-compact reveal">
+          <div class="hero-copy">
+            <p class="eyebrow">Backlog</p>
+            <h1>Prioritized by what unlocks the next milestone.</h1>
+            <p class="lede">
+              The backlog is grouped by execution order, not just by subsystem. The
+              immediate focus is finishing the real local state machine, then carrying
+              that same logic into replication and user-facing surfaces.
+            </p>
+          </div>
+        </section>
+
+        <section class="section reveal">
+          <div class="card-grid">
+            <article class="feature-card">
+              <h3>Now</h3>
+              <p>Complete persistent local namespace state and full operation application.</p>
+            </article>
+            <article class="feature-card">
+              <h3>Next</h3>
+              <p>Bring up real replication and the first production-meaningful facade.</p>
+            </article>
+            <article class="feature-card">
+              <h3>Later</h3>
+              <p>Add encryption, proofs, energy-aware behavior, and operator tooling.</p>
+            </article>
+            <article class="feature-card">
+              <h3>Research</h3>
+              <p>Keep ZK, privacy, and advanced systems work feature-gated until the baseline is solid.</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="section layout-two reveal">
+          <div class="content-panel">
+            <h2>Highest-priority backlog</h2>
+            <ul class="list-block">
+              <li>Replace placeholder apply logic with real CRDT-backed state transitions</li>
+              <li>Persist actual inode and directory mappings</li>
+              <li>Build snapshots from live namespace state</li>
+              <li>Expand admin visibility into local storage and applied state</li>
+            </ul>
+          </div>
+          <div class="content-panel">
+            <h2>Next unlocks</h2>
+            <ul class="list-block">
+              <li>Implement oplog synchronization between peers</li>
+              <li>Add blob transfer and verified remote apply</li>
+              <li>Choose and ship the first real external facade</li>
+              <li>Integrate encryption and transparent proof enforcement</li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="section reveal">
+          <div class="callout">
+            <div>
+              <p class="eyebrow">Planning</p>
+              <h2>Roadmap and backlog now work together</h2>
+              <p>
+                The roadmap defines milestone outcomes. The backlog defines the
+                concrete queue that moves the project toward those outcomes.
+              </p>
+            </div>
+            <div class="callout-actions">
+              <a class="button button-primary" href="./roadmap.html">View Roadmap</a>
+              <a class="button button-secondary" href="./docs.html">Back To Docs</a>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <p>Execution-oriented backlog for NexusFS.</p>
+        <p>© <span id="year"></span> NexusFS</p>
+      </footer>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
