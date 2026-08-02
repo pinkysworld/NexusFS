@@ -9,6 +9,9 @@ pub trait BlobStore: Send + Sync {
     fn get(&self, key: &Hash) -> Result<Option<Vec<u8>>>;
     fn has(&self, key: &Hash) -> Result<bool>;
     fn delete(&self, key: &Hash) -> Result<()>;
+
+    /// `(blob count, total bytes)` for capacity reporting.
+    fn stats(&self) -> Result<(usize, u64)>;
 }
 
 pub trait KvStore: Send + Sync {

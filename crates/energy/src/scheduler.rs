@@ -53,13 +53,11 @@ impl Scheduler for RuleBasedScheduler {
         }
 
         // Only allow blob transfer if energy/thermal budget is ok.
-        if !battery_low || telemetry.charging {
-            if backlog.pending_blobs > 0 {
-                tasks.push(ReplicationTask::RequestBlobs {
-                    peer: 0,
-                    hashes: vec![],
-                });
-            }
+        if (!battery_low || telemetry.charging) && backlog.pending_blobs > 0 {
+            tasks.push(ReplicationTask::RequestBlobs {
+                peer: 0,
+                hashes: vec![],
+            });
         }
 
         if !temp_high {

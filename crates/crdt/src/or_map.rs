@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 /// - Merge is set union.
 ///
 /// Later, optimize storage and add ZK-friendly roots.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(
     serialize = "K: Ord + Serialize, V: Serialize",
     deserialize = "K: Ord + Deserialize<'de>, V: Deserialize<'de>"
@@ -17,6 +17,17 @@ use std::collections::{BTreeMap, BTreeSet};
 pub struct OrMap<K, V> {
     pub adds: BTreeMap<K, BTreeMap<Dot, V>>,
     pub removes: BTreeMap<K, BTreeSet<Dot>>,
+}
+
+/// Hand-written rather than derived: `#[derive(Default)]` would demand
+/// `K: Default, V: Default`, which an empty map plainly does not need.
+impl<K, V> Default for OrMap<K, V> {
+    fn default() -> Self {
+        Self {
+            adds: BTreeMap::new(),
+            removes: BTreeMap::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -41,16 +52,39 @@ impl<K: Ord + Clone, V: Clone> OrMap<K, V> {
     }
 
     pub fn get(&self, key: &K) -> Option<V> {
-        let adds = self.adds.get(key)?;
+        // Deterministic single-value read: highest surviving dot wins.
+        self.get_all(key).pop().map(|(_, v)| v)
+    }
+
+    /// Every value for `key` that has not been observed-removed, ordered by dot.
+    ///
+    /// `get` collapses this to one value, which hides concurrent adds. Callers that
+    /// must *detect* a conflict — rather than silently pick a winner — need to see
+    /// all survivors so they can derive a deterministic conflict name.
+    pub fn get_all(&self, key: &K) -> Vec<(Dot, V)> {
+        let Some(adds) = self.adds.get(key) else {
+            return Vec::new();
+        };
         let removed = self.removes.get(key);
-        // Return any surviving value deterministically (by max dot).
-        let mut candidates: Vec<(Dot, V)> = adds
+        let mut survivors: Vec<(Dot, V)> = adds
             .iter()
             .filter(|(d, _)| removed.map(|r| !r.contains(d)).unwrap_or(true))
             .map(|(d, v)| (*d, v.clone()))
             .collect();
-        candidates.sort_by(|a, b| a.0.cmp(&b.0));
-        candidates.last().map(|(_, v)| v.clone())
+        survivors.sort_by_key(|(dot, _)| *dot);
+        survivors
+    }
+
+    /// Keys that still have at least one surviving value.
+    ///
+    /// `keys` returns every key ever added, including fully-removed ones (tombstones
+    /// are retained so that concurrent re-adds still converge).
+    pub fn live_keys(&self) -> Vec<K> {
+        self.adds
+            .keys()
+            .filter(|k| !self.get_all(k).is_empty())
+            .cloned()
+            .collect()
     }
 
     pub fn keys(&self) -> Vec<K> {

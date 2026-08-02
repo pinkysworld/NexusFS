@@ -1,6 +1,7 @@
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::types::{DeviceId, Hash, OpId};
+use crate::types::{ChunkRef, DeviceId, OpId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProofMode {
@@ -38,7 +39,9 @@ pub enum FsOpKind {
     Write {
         inode: u128,
         offset: u64,
-        data_hashes: Vec<Hash>,
+        /// Full chunk references, not bare hashes: a receiver must be able to lay
+        /// out the file from the oplog before fetching any blob.
+        chunks: Vec<ChunkRef>,
         new_size: u64,
     },
     Rename {
@@ -70,9 +73,40 @@ pub struct FsOp {
     pub proof: Option<ProofBundle>,
 }
 
+/// Canonical view of an `FsOp` with `sig` omitted.
+///
+/// Mirrors the `HelloToSign` pattern in `nexusfs-net` so both signing schemes stay
+/// consistent. Everything except the signature is covered, including the proof
+/// bundle, so a peer cannot strip or swap a proof without invalidating the op.
+#[derive(Serialize)]
+struct FsOpToSign<'a> {
+    id: OpId,
+    time_unix_ms: u64,
+    ctx: &'a CausalCtx,
+    kind: &'a FsOpKind,
+    author_pubkey: [u8; 32],
+    proof: &'a Option<ProofBundle>,
+}
+
 impl FsOp {
     /// Returns the OpId in (device, counter) form for indexing.
     pub fn id_tuple(&self) -> (DeviceId, u64) {
         (self.id.device_id, self.id.counter)
+    }
+
+    /// Deterministic bytes covered by `sig`.
+    ///
+    /// Both the signer and every verifier must derive these identically, so this is
+    /// the single definition of what an operation's signature commits to.
+    pub fn signing_bytes(&self) -> Result<Vec<u8>> {
+        let to_sign = FsOpToSign {
+            id: self.id,
+            time_unix_ms: self.time_unix_ms,
+            ctx: &self.ctx,
+            kind: &self.kind,
+            author_pubkey: self.author_pubkey,
+            proof: &self.proof,
+        };
+        postcard::to_stdvec(&to_sign).context("encode op to sign")
     }
 }

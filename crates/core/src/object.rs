@@ -5,19 +5,15 @@ use serde::{Deserialize, Serialize};
 use nexusfs_proto::types::DeviceId;
 use nexusfs_storage::Hash;
 
+/// Chunk references are defined in `proto` because operations carry them over the
+/// wire; re-exported here so object-model code has one obvious import path.
+pub use nexusfs_proto::types::ChunkRef;
+
 /// Versioned object header to allow safe upgrades.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObjectHeader {
     pub type_tag: u16,
     pub version: u16,
-}
-
-/// A reference to a chunk stored as a blob in the CAS.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChunkRef {
-    pub hash: Hash,
-    pub len: u32,
-    pub offset: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

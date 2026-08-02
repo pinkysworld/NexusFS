@@ -2,7 +2,18 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::net::SocketAddr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+/// Expand a leading `~` or `~/` against `$HOME`. Other paths pass through untouched.
+fn expand_home(raw: &str) -> PathBuf {
+    let Some(rest) = raw.strip_prefix('~') else {
+        return PathBuf::from(raw);
+    };
+    let Ok(home) = std::env::var("HOME") else {
+        return PathBuf::from(raw);
+    };
+    PathBuf::from(home).join(rest.trim_start_matches('/'))
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -66,6 +77,15 @@ impl Config {
         Ok(cfg)
     }
 
+    /// Resolved data directory, expanding a leading `~`.
+    ///
+    /// Expansion matters because the store must be able to live outside a
+    /// cloud-synced folder: a sync daemon rewriting files under a live embedded
+    /// database is a good way to corrupt it.
+    pub fn data_dir(&self) -> PathBuf {
+        expand_home(&self.node.data_dir)
+    }
+
     pub fn admin_addr(&self) -> Result<SocketAddr> {
         self.admin
             .bind
@@ -78,7 +98,13 @@ impl Config {
         self.s3.bind.parse().context("parse s3.bind socket addr")
     }
 
+    /// Listen address for the replication transport.
+    ///
+    /// Unused until the peer manager lands (see the `quic` TODO in `daemon.rs`); kept
+    /// so the config surface and the transport arrive together rather than the address
+    /// parsing being written twice.
     #[cfg(feature = "quic")]
+    #[allow(dead_code)]
     pub fn net_addr(&self) -> Result<SocketAddr> {
         self.net
             .listen

@@ -5,39 +5,91 @@
     <title>NexusFS Admin</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
-      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin: 24px; }
-      .row { display: flex; gap: 16px; flex-wrap: wrap; }
-      .card { border: 1px solid #ddd; border-radius: 10px; padding: 16px; min-width: 320px; }
-      code { background: #f6f6f6; padding: 2px 6px; border-radius: 6px; }
-      input { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc; }
-      button { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc; cursor: pointer; }
+      :root { color-scheme: light dark; }
+      body {
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+        margin: 24px; max-width: 1100px;
+      }
+      h1 { margin-bottom: 4px; }
+      .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+      .card { border: 1px solid #ddd; border-radius: 10px; padding: 16px; min-width: 320px; flex: 1; }
+      code { background: #f6f6f6; padding: 2px 6px; border-radius: 6px; word-break: break-all; }
+      input { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc; font: inherit; }
+      button { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc; cursor: pointer; font: inherit; }
       .muted { color: #666; }
+      .err { color: #b00020; }
       pre { white-space: pre-wrap; word-break: break-word; }
+      table { border-collapse: collapse; width: 100%; }
+      th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid #eee; font-size: 14px; }
+      th { color: #666; font-weight: 600; }
+      td.num { text-align: right; font-variant-numeric: tabular-nums; }
+      .crumb { cursor: pointer; color: #06c; text-decoration: underline; }
+      .dim { color: #999; }
+      @media (prefers-color-scheme: dark) {
+        .card { border-color: #333; }
+        code { background: #222; }
+        th, td { border-color: #2a2a2a; }
+      }
     </style>
   </head>
   <body>
     <h1>NexusFS Admin</h1>
-    <p class="muted">Embedded console (skeleton). More panels are added per research track.</p>
+    <p class="muted">Embedded console for the local repository.</p>
 
     <div class="card">
       <div><strong>Admin token</strong> (optional in dev)</div>
-      <div style="margin-top:8px;">
+      <div style="margin-top: 8px;">
         <input id="token" placeholder="x-nexusfs-token" style="width: 280px;" />
         <button onclick="window.NX.refresh()">Refresh</button>
+        <span id="error" class="err"></span>
       </div>
     </div>
 
     <div class="row" style="margin-top: 16px;">
       <div class="card">
-        <h3>Node status</h3>
-        <div>Device: <code id="device">...</code></div>
-        <div>Head: <code id="head">...</code></div>
-        <div>Now: <code id="now">...</code></div>
+        <h3>Node</h3>
+        <div>Device: <code id="device">…</code></div>
+        <div style="margin-top: 6px;">Head: <code id="head">…</code></div>
+        <div style="margin-top: 6px;">State root: <code id="stateRoot">…</code></div>
+        <div style="margin-top: 6px;" class="muted">
+          The head carries provenance; the state root is what two replicas compare.
+        </div>
       </div>
 
       <div class="card">
-        <h3>Oplog summary</h3>
-        <pre id="oplog">...</pre>
+        <h3>Storage</h3>
+        <table>
+          <tr><td>Blobs</td><td class="num" id="blobCount">…</td></tr>
+          <tr><td>Blob bytes</td><td class="num" id="blobBytes">…</td></tr>
+          <tr><td>Namespace records</td><td class="num" id="stateEntries">…</td></tr>
+          <tr><td>Operations</td><td class="num" id="opCount">…</td></tr>
+          <tr><td>Applied</td><td class="num" id="appliedCount">…</td></tr>
+          <tr><td>Pending</td><td class="num" id="pendingCount">…</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top: 16px;">
+      <h3>Filesystem</h3>
+      <div id="breadcrumbs" style="margin-bottom: 8px;"></div>
+      <table>
+        <thead><tr><th>Name</th><th>Kind</th><th style="text-align:right">Size</th><th>Inode</th></tr></thead>
+        <tbody id="listing"></tbody>
+      </table>
+    </div>
+
+    <div class="row" style="margin-top: 16px;">
+      <div class="card">
+        <h3>Recent operations</h3>
+        <table>
+          <thead><tr><th>Device</th><th>#</th><th>Operation</th><th>State</th></tr></thead>
+          <tbody id="ops"></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h3>Clock summary</h3>
+        <pre id="oplog">…</pre>
       </div>
     </div>
 

@@ -11,13 +11,16 @@ use nexusfs_storage::{BlobStore, KvStore};
 use crate::chunker::store_chunks_with_refs;
 use crate::codec::{decode, encode, encode_object};
 use crate::hash::hash_bytes;
-use crate::object::{ChunkRef, DirEntry, DirNode, FileNode, Object, ObjectHeader};
-use crate::snapshot::new_snapshot_root;
+use crate::inode::ROOT_INODE;
+use crate::namespace::InodeRecord;
+use crate::object::{ChunkRef, DirEntry, DirNode, EntryType, FileNode, Object, ObjectHeader};
 
-const CF_META: &str = "meta";
-const CF_OPLOG: &str = "oplog";
+pub(crate) const CF_META: &str = "meta";
+pub(crate) const CF_OPLOG: &str = "oplog";
 
 const KEY_HEAD_CURRENT: &[u8] = b"head/current";
+const KEY_STATE_ROOT: &[u8] = b"state/root";
+const KEY_STATE_TIME: &[u8] = b"state/time";
 
 /// Column-family prefix keys for oplog entries.
 const OP_PREFIX: &[u8] = b"op\0";
@@ -93,8 +96,29 @@ impl CoreState {
         Ok(Some(obj))
     }
 
+    // ---- head and state commitment ------------------------------------------
+
     pub fn get_head(&self) -> Result<Option<Hash>> {
-        if let Some(v) = self.stores.kv.get_kv(CF_META, KEY_HEAD_CURRENT)? {
+        self.read_hash(KEY_HEAD_CURRENT)
+    }
+
+    pub fn set_head(&self, head: Hash) -> Result<()> {
+        self.stores.kv.put_kv(CF_META, KEY_HEAD_CURRENT, &head)?;
+        Ok(())
+    }
+
+    /// Last computed state commitment. See `compute_state_root`.
+    pub fn get_state_root(&self) -> Result<Option<Hash>> {
+        self.read_hash(KEY_STATE_ROOT)
+    }
+
+    pub(crate) fn set_state_root(&self, root: Hash) -> Result<()> {
+        self.stores.kv.put_kv(CF_META, KEY_STATE_ROOT, &root)?;
+        Ok(())
+    }
+
+    fn read_hash(&self, key: &[u8]) -> Result<Option<Hash>> {
+        if let Some(v) = self.stores.kv.get_kv(CF_META, key)? {
             if v.len() == 32 {
                 let mut h = [0u8; 32];
                 h.copy_from_slice(&v);
@@ -104,17 +128,32 @@ impl CoreState {
         Ok(None)
     }
 
-    pub fn set_head(&self, head: Hash) -> Result<()> {
-        self.stores.kv.put_kv(CF_META, KEY_HEAD_CURRENT, &head)?;
+    /// Highest operation timestamp applied so far.
+    ///
+    /// Used as the snapshot timestamp. `max` is commutative, so replaying the same
+    /// operations in a different order yields the same value — which is what lets a
+    /// replica's head be stable rather than dependent on arrival order.
+    pub(crate) fn state_time(&self) -> Result<u64> {
+        Ok(self
+            .stores
+            .kv
+            .get_kv(CF_META, KEY_STATE_TIME)?
+            .and_then(|v| v.try_into().ok())
+            .map(u64::from_be_bytes)
+            .unwrap_or(0))
+    }
+
+    pub(crate) fn observe_time(&self, time_unix_ms: u64) -> Result<()> {
+        let current = self.state_time()?;
+        if time_unix_ms > current {
+            self.stores
+                .kv
+                .put_kv(CF_META, KEY_STATE_TIME, &time_unix_ms.to_be_bytes())?;
+        }
         Ok(())
     }
 
-    pub fn create_snapshot(&self, root_dir_inode: u128, now_ms: u64) -> Result<Hash> {
-        let snapshot = new_snapshot_root(root_dir_inode, self.device_id, now_ms);
-        let head_hash = self.put_object(&Object::SnapshotRoot(snapshot))?;
-        self.set_head(head_hash)?;
-        Ok(head_hash)
-    }
+    // ---- oplog ----------------------------------------------------------------
 
     /// Append an operation to the oplog. This does NOT automatically apply it.
     pub fn append_op(&self, op: &FsOp) -> Result<()> {
@@ -122,6 +161,32 @@ impl CoreState {
         let val = encode(op)?;
         self.stores.kv.put_kv(CF_OPLOG, &key, &val)?;
         Ok(())
+    }
+
+    pub fn get_op(&self, op_id: OpId) -> Result<Option<FsOp>> {
+        let key = op_key(op_id.device_id, op_id.counter);
+        let Some(bytes) = self.stores.kv.get_kv(CF_OPLOG, &key)? else {
+            return Ok(None);
+        };
+        Ok(Some(decode(&bytes)?))
+    }
+
+    /// Most recent operations by device/counter order, newest first.
+    pub fn recent_ops(&self, limit: usize) -> Result<Vec<FsOp>> {
+        let mut rows = self.stores.kv.scan_prefix(CF_OPLOG, OP_PREFIX)?;
+        rows.reverse();
+        rows.into_iter()
+            .take(limit)
+            .map(|(_k, v)| decode::<FsOp>(&v))
+            .collect()
+    }
+
+    pub fn op_count(&self) -> Result<usize> {
+        Ok(self.stores.kv.scan_prefix(CF_OPLOG, OP_PREFIX)?.len())
+    }
+
+    pub fn applied_count(&self) -> Result<usize> {
+        Ok(self.stores.kv.scan_prefix(CF_OPLOG, APPLIED_PREFIX)?.len())
     }
 
     pub fn is_op_applied(&self, op_id: OpId) -> Result<bool> {
@@ -151,51 +216,32 @@ impl CoreState {
         })
     }
 
-    /// Create an initial empty root directory and snapshot if no head exists.
+    // ---- bootstrap --------------------------------------------------------------
+
+    /// Create the root directory and an initial snapshot if this repository is empty.
     pub fn bootstrap_if_needed(&self) -> Result<()> {
         if self.get_head()?.is_some() {
             return Ok(());
         }
 
-        // Create empty root dir object and snapshot.
-        let now = now_ms();
-        let root_inode: u128 = 1; // reserved in v0 skeleton
-        let root_dir = DirNode::new_canonical(vec![], 0o40755, 0, 0, now);
-        let root_hash = self.put_object(&Object::DirNode(root_dir))?;
+        // The root is the one inode not created by an operation, so it cannot derive
+        // its identity from an OpId. It must nonetheless be byte-identical on every
+        // replica — stamping it with wall-clock time or the local device id would give
+        // two nodes different root DirNodes and therefore different state roots, even
+        // with identical contents. Hence a fixed genesis record that any later SetAttr
+        // (ts > 0) cleanly outranks.
+        let root = InodeRecord::new(EntryType::Dir, 0o40755, 0, 0, 0);
+        self.store_inode(ROOT_INODE, &root)?;
+        self.store_dir(ROOT_INODE, &Default::default())?;
 
-        // SnapshotRoot currently stores only root inode id; inode map root is future work.
-        // Store a hint of root dir hash for bootstrap in metadata (temporary).
-        self.stores
-            .kv
-            .put_kv(CF_META, b"bootstrap/root_dir_hash", &root_hash)?;
-
-        let snap_hash = self.create_snapshot(root_inode, now)?;
-        info!("bootstrapped new repository head={:x?}", snap_hash);
+        let head = self.build_snapshot()?;
+        info!(head = %hex::encode(head), "bootstrapped new repository");
         Ok(())
     }
 
-    /// Apply an op to local state.
-    ///
-    /// NOTE: This is intentionally minimal in the skeleton.
-    /// The full system should apply ops to CRDT state and rebuild snapshots accordingly.
-    pub fn apply_op_minimal(&self, op: &FsOp) -> Result<()> {
-        if self.is_op_applied(op.id)? {
-            return Ok(());
-        }
+    // ---- chunk and object helpers -----------------------------------------------
 
-        // In v0 skeleton, we only record ops and bump head to a new snapshot for visibility.
-        self.append_op(op)?;
-        self.mark_op_applied(op.id)?;
-        let snapshot_time = if op.time_unix_ms == 0 {
-            now_ms()
-        } else {
-            op.time_unix_ms
-        };
-        self.create_snapshot(1, snapshot_time)?;
-        Ok(())
-    }
-
-    /// Deterministic conflict name helper (used later by CRDT merges).
+    /// Deterministic conflict name helper (used by CRDT merges).
     pub fn conflict_name(base: &str, device_id: DeviceId, time_ms: u64) -> String {
         conflicts::conflict_name(base, device_id.0, time_ms)
     }
@@ -228,28 +274,21 @@ impl CoreState {
         self.put_object(&Object::FileNode(file))
     }
 
-    /// Create a FileNode from chunk hashes (already stored) and store it in CAS.
-    pub fn make_filenode(&self, chunks: Vec<Hash>, size: u64, now_ms: u64) -> Result<Hash> {
-        let refs = chunks
-            .into_iter()
-            .map(|hash| ChunkRef {
-                hash,
-                len: 0,
-                offset: 0,
-            })
-            .collect();
-        self.make_filenode_with_refs(refs, size, now_ms)
-    }
-
     pub fn store_filenode_from_bytes(&self, data: &[u8], now_ms: u64) -> Result<Hash> {
         let chunk_refs = self.store_chunks(data)?;
         self.make_filenode_with_refs(chunk_refs, data.len() as u64, now_ms)
     }
 
-    /// Temporary helper: build a new canonical DirNode and store it.
+    /// Build a canonical DirNode and store it.
     pub fn make_dirnode(&self, entries: Vec<DirEntry>, now_ms: u64) -> Result<Hash> {
         let dir = DirNode::new_canonical(entries, 0o40755, 0, 0, now_ms);
         self.put_object(&Object::DirNode(dir))
+    }
+
+    // ---- storage accounting -------------------------------------------------------
+
+    pub fn blob_stats(&self) -> Result<(usize, u64)> {
+        self.stores.blobs.stats()
     }
 }
 

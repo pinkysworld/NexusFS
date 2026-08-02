@@ -13,12 +13,31 @@ use crate::config::Config;
 pub async fn run_status(config_path: PathBuf) -> Result<()> {
     let cfg = Config::load(&config_path)?;
     let (core, _identity, admin_token) = open_core(&cfg)?;
-    let head = core.get_head()?;
-    println!("device_id: {:x}", core.device_id.0);
+    core.bootstrap_if_needed()?;
+
+    let (blob_count, blob_bytes) = core.blob_stats()?;
+
+    println!("device_id:   {:x}", core.device_id.0);
+    println!("data_dir:    {}", cfg.data_dir().display());
     println!(
-        "head: {}",
-        head.map(hex::encode).unwrap_or_else(|| "(none)".into())
+        "head:        {}",
+        core.get_head()?
+            .map(hex::encode)
+            .unwrap_or_else(|| "(none)".into())
     );
+    println!(
+        "state_root:  {}",
+        core.get_state_root()?
+            .map(hex::encode)
+            .unwrap_or_else(|| "(none)".into())
+    );
+    println!(
+        "ops:         {} ({} applied)",
+        core.op_count()?,
+        core.applied_count()?
+    );
+    println!("pending:     {}", core.pending_count()?);
+    println!("blobs:       {blob_count} ({blob_bytes} bytes)");
     println!(
         "admin_token: {}",
         if admin_token.is_empty() {
@@ -78,9 +97,9 @@ pub async fn run_daemon(config_path: PathBuf) -> Result<()> {
     Ok(())
 }
 
-fn open_core(cfg: &Config) -> Result<(CoreState, Identity, String)> {
+pub(crate) fn open_core(cfg: &Config) -> Result<(CoreState, Identity, String)> {
     // Open local DB (sled default).
-    let data_dir = PathBuf::from(&cfg.node.data_dir);
+    let data_dir = cfg.data_dir();
     std::fs::create_dir_all(&data_dir).ok();
 
     let db_path = data_dir.join("db");

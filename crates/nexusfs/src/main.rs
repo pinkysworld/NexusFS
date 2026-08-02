@@ -3,6 +3,7 @@
 mod cli;
 mod config;
 mod daemon;
+mod fsops;
 
 use anyhow::Result;
 use clap::Parser;
@@ -21,5 +22,19 @@ async fn main() -> Result<()> {
     match cli.command {
         Command::Daemon { config } => daemon::run_daemon(config).await,
         Command::Status { config } => daemon::run_status(config).await,
+        Command::Mkdir {
+            config,
+            path,
+            parents,
+        } => fsops::run_mkdir(config, path, parents).await,
+        Command::Put {
+            config,
+            source,
+            dest,
+        } => fsops::run_put(config, source, dest).await,
+        Command::Cat { config, path } => fsops::run_cat(config, path).await,
+        Command::Ls { config, path } => fsops::run_ls(config, path).await,
+        Command::Rm { config, path } => fsops::run_rm(config, path).await,
+        Command::Mv { config, from, to } => fsops::run_mv(config, from, to).await,
     }
 }

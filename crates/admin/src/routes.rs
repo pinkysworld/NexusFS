@@ -1,11 +1,13 @@
 use axum::{
-    extract::State,
+    extract::{Query, State},
     http::{HeaderMap, StatusCode},
     response::{Html, IntoResponse, Response},
     routing::get,
     Json, Router,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+
+use nexusfs_core::EntryType;
 
 use crate::assets;
 use crate::AdminState;
@@ -23,6 +25,12 @@ fn require_token(headers: &HeaderMap, expected: &str) -> Result<(), StatusCode> 
     }
 }
 
+/// Surface the real error to the operator instead of a bare 500 — this console
+/// exists to make local state debuggable.
+fn server_error(err: anyhow::Error) -> (StatusCode, String) {
+    (StatusCode::INTERNAL_SERVER_ERROR, format!("{err:#}"))
+}
+
 pub fn router(state: AdminState) -> Router {
     Router::new()
         .route("/", get(index))
@@ -30,6 +38,9 @@ pub fn router(state: AdminState) -> Router {
         .route("/api/status", get(status))
         .route("/api/fs/head", get(head))
         .route("/api/oplog/summary", get(oplog_summary))
+        .route("/api/storage/stats", get(storage_stats))
+        .route("/api/fs/ls", get(fs_ls))
+        .route("/api/oplog/recent", get(oplog_recent))
         .with_state(state)
 }
 
@@ -49,7 +60,11 @@ async fn app_js() -> Response {
 #[derive(Serialize)]
 struct Status {
     head: Option<String>,
+    state_root: Option<String>,
     device_id: String,
+    ops: usize,
+    applied: usize,
+    pending: usize,
     now_ms: u64,
 }
 
@@ -58,16 +73,20 @@ async fn status(
     headers: HeaderMap,
 ) -> Result<Json<Status>, StatusCode> {
     require_token(&headers, &st.token)?;
-    let head = st
-        .core
-        .get_head()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let head_hex = head.map(hex::encode);
-    Ok(Json(Status {
-        head: head_hex,
-        device_id: format!("{:x}", st.core.device_id.0),
-        now_ms: nexusfs_core::now_ms(),
-    }))
+    let build = || -> anyhow::Result<Status> {
+        Ok(Status {
+            head: st.core.get_head()?.map(hex::encode),
+            state_root: st.core.get_state_root()?.map(hex::encode),
+            device_id: format!("{:x}", st.core.device_id.0),
+            ops: st.core.op_count()?,
+            applied: st.core.applied_count()?,
+            pending: st.core.pending_count()?,
+            now_ms: nexusfs_core::now_ms(),
+        })
+    };
+    Ok(Json(
+        build().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+    ))
 }
 
 #[derive(Serialize)]
@@ -99,4 +118,160 @@ async fn oplog_summary(
         .clock_summary()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(sum))
+}
+
+#[derive(Serialize)]
+struct StorageStats {
+    blob_count: usize,
+    blob_bytes: u64,
+    state_entries: usize,
+    op_count: usize,
+    applied_count: usize,
+    pending_count: usize,
+}
+
+async fn storage_stats(
+    State(st): State<AdminState>,
+    headers: HeaderMap,
+) -> Result<Json<StorageStats>, (StatusCode, String)> {
+    require_token(&headers, &st.token).map_err(|c| (c, "unauthorized".into()))?;
+
+    let build = || -> anyhow::Result<StorageStats> {
+        let (blob_count, blob_bytes) = st.core.blob_stats()?;
+        Ok(StorageStats {
+            blob_count,
+            blob_bytes,
+            state_entries: st.core.state_entry_count()?,
+            op_count: st.core.op_count()?,
+            applied_count: st.core.applied_count()?,
+            pending_count: st.core.pending_count()?,
+        })
+    };
+    Ok(Json(build().map_err(server_error)?))
+}
+
+#[derive(Deserialize)]
+struct LsQuery {
+    #[serde(default = "root_path")]
+    path: String,
+}
+
+fn root_path() -> String {
+    "/".to_string()
+}
+
+#[derive(Serialize)]
+struct LsEntry {
+    name: String,
+    inode: String,
+    kind: &'static str,
+    size: u64,
+}
+
+#[derive(Serialize)]
+struct LsResp {
+    path: String,
+    entries: Vec<LsEntry>,
+}
+
+async fn fs_ls(
+    State(st): State<AdminState>,
+    headers: HeaderMap,
+    Query(q): Query<LsQuery>,
+) -> Result<Json<LsResp>, (StatusCode, String)> {
+    require_token(&headers, &st.token).map_err(|c| (c, "unauthorized".into()))?;
+
+    let build = || -> anyhow::Result<LsResp> {
+        let mut entries = Vec::new();
+        for entry in st.core.read_dir_path(&q.path)? {
+            let size = match entry.entry_type {
+                EntryType::File => st
+                    .core
+                    .load_inode(entry.inode_id)?
+                    .map(|r| r.content.value.size)
+                    .unwrap_or(0),
+                EntryType::Dir => 0,
+            };
+            entries.push(LsEntry {
+                name: entry.name,
+                inode: format!("{:x}", entry.inode_id),
+                kind: match entry.entry_type {
+                    EntryType::Dir => "dir",
+                    EntryType::File => "file",
+                },
+                size,
+            });
+        }
+        Ok(LsResp {
+            path: q.path.clone(),
+            entries,
+        })
+    };
+
+    Ok(Json(build().map_err(server_error)?))
+}
+
+#[derive(Deserialize)]
+struct RecentQuery {
+    #[serde(default = "default_limit")]
+    limit: usize,
+}
+
+fn default_limit() -> usize {
+    20
+}
+
+#[derive(Serialize)]
+struct OpSummary {
+    device_id: String,
+    counter: u64,
+    time_unix_ms: u64,
+    kind: String,
+    applied: bool,
+}
+
+async fn oplog_recent(
+    State(st): State<AdminState>,
+    headers: HeaderMap,
+    Query(q): Query<RecentQuery>,
+) -> Result<Json<Vec<OpSummary>>, (StatusCode, String)> {
+    require_token(&headers, &st.token).map_err(|c| (c, "unauthorized".into()))?;
+
+    let build = || -> anyhow::Result<Vec<OpSummary>> {
+        let mut out = Vec::new();
+        for op in st.core.recent_ops(q.limit.min(500))? {
+            out.push(OpSummary {
+                device_id: format!("{:x}", op.id.device_id.0),
+                counter: op.id.counter,
+                time_unix_ms: op.time_unix_ms,
+                kind: describe_op(&op.kind),
+                applied: st.core.is_op_applied(op.id)?,
+            });
+        }
+        Ok(out)
+    };
+
+    Ok(Json(build().map_err(server_error)?))
+}
+
+fn describe_op(kind: &nexusfs_proto::FsOpKind) -> String {
+    use nexusfs_proto::FsOpKind::*;
+    match kind {
+        Mkdir { parent, name, .. } => format!("mkdir {name} in {parent:x}"),
+        CreateFile { parent, name, .. } => format!("create {name} in {parent:x}"),
+        Write {
+            inode,
+            chunks,
+            new_size,
+            ..
+        } => format!(
+            "write {inode:x} ({new_size} bytes, {} chunks)",
+            chunks.len()
+        ),
+        Rename {
+            old_name, new_name, ..
+        } => format!("rename {old_name} -> {new_name}"),
+        Unlink { parent, name } => format!("unlink {name} from {parent:x}"),
+        SetAttr { inode, .. } => format!("setattr {inode:x}"),
+    }
 }

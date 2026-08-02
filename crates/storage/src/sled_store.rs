@@ -51,6 +51,18 @@ impl BlobStore for SledStore {
         t.flush()?;
         Ok(())
     }
+
+    fn stats(&self) -> Result<(usize, u64)> {
+        let t = self.blobs_tree()?;
+        let mut count = 0usize;
+        let mut bytes = 0u64;
+        for kv in t.iter() {
+            let (_k, v) = kv?;
+            count += 1;
+            bytes += v.len() as u64;
+        }
+        Ok((count, bytes))
+    }
 }
 
 impl KvStore for SledStore {

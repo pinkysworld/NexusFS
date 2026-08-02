@@ -1,5 +1,7 @@
 [node]
-data_dir = "./data"
+# A leading `~` is expanded. Keep this OUTSIDE any cloud-synced folder: a sync
+# daemon rewriting files under the live embedded database can corrupt it.
+data_dir = "~/.local/share/nexusfs"
 device_name = "dev-node"
 
 [net]

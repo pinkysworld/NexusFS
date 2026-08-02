@@ -1,0 +1,103 @@
+#![allow(dead_code)]
+
+use std::path::Path;
+use std::sync::Arc;
+
+use nexusfs_core::{CoreState, Stores};
+use nexusfs_crypto::{sign, Identity};
+use nexusfs_proto::{CausalCtx, ChunkRef, DeviceId, FsOp, FsOpKind, OpId};
+use nexusfs_storage::sled_store::SledStore;
+
+pub fn open_core(path: &Path, device: u128) -> CoreState {
+    let store = SledStore::open(path).unwrap();
+    let stores = Stores {
+        blobs: Arc::new(store.clone()),
+        kv: Arc::new(store),
+    };
+    CoreState::new(stores, DeviceId(device))
+}
+
+pub fn bootstrapped(path: &Path, device: u128) -> CoreState {
+    let core = open_core(path, device);
+    core.bootstrap_if_needed().unwrap();
+    core
+}
+
+/// Build a signed op without touching any store.
+///
+/// Deliberately independent of `CoreState::make_op`, which allocates a counter from
+/// local state: convergence tests need the *same* ops applied to several replicas, so
+/// the identity of an op cannot depend on who applies it.
+pub fn signed_op(
+    identity: &Identity,
+    device: u128,
+    counter: u64,
+    time_unix_ms: u64,
+    kind: FsOpKind,
+) -> FsOp {
+    let mut op = FsOp {
+        id: OpId {
+            device_id: DeviceId(device),
+            counter,
+        },
+        time_unix_ms,
+        ctx: CausalCtx { deps: vec![] },
+        kind,
+        author_pubkey: identity.pubkey_bytes(),
+        sig: Vec::new(),
+        proof: None,
+    };
+    op.sig = sign(identity.signing_key(), &op.signing_bytes().unwrap());
+    op
+}
+
+pub fn mkdir(parent: u128, name: &str) -> FsOpKind {
+    FsOpKind::Mkdir {
+        parent,
+        name: name.to_string(),
+        mode: 0o40755,
+    }
+}
+
+pub fn create_file(parent: u128, name: &str) -> FsOpKind {
+    FsOpKind::CreateFile {
+        parent,
+        name: name.to_string(),
+        mode: 0o100644,
+    }
+}
+
+pub fn unlink(parent: u128, name: &str) -> FsOpKind {
+    FsOpKind::Unlink {
+        parent,
+        name: name.to_string(),
+    }
+}
+
+pub fn rename(old_parent: u128, old_name: &str, new_parent: u128, new_name: &str) -> FsOpKind {
+    FsOpKind::Rename {
+        old_parent,
+        old_name: old_name.to_string(),
+        new_parent,
+        new_name: new_name.to_string(),
+    }
+}
+
+/// Chunk `data` into `core`'s blob store and return a whole-file Write op kind.
+pub fn write_all(core: &CoreState, inode: u128, data: &[u8]) -> FsOpKind {
+    let chunks: Vec<ChunkRef> = core.store_chunks(data).unwrap();
+    FsOpKind::Write {
+        inode,
+        offset: 0,
+        chunks,
+        new_size: data.len() as u64,
+    }
+}
+
+pub fn names(core: &CoreState, path: &str) -> Vec<String> {
+    core.read_dir_path(path)
+        .unwrap()
+        .into_iter()
+        .map(|e| e.name)
+        .collect()
+}

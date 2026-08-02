@@ -13,10 +13,13 @@ bytes.workspace = true
 blake3.workspace = true
 time.workspace = true
 tracing.workspace = true
+hex.workspace = true
 
 nexusfs-storage = { path = "../storage" }
 nexusfs-proto = { path = "../proto" }
 nexusfs-crdt = { path = "../crdt" }
+nexusfs-crypto = { path = "../crypto" }
 
 [dev-dependencies]
 tempfile.workspace = true
+nexusfs-storage = { path = "../storage", features = ["sled"] }
