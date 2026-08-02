@@ -1,6 +1,6 @@
 # Roadmap
 
-Last updated: March 1, 2026
+Last updated: August 2, 2026
 
 This roadmap turns the current NexusFS blueprint into a staged execution plan.
 
@@ -16,12 +16,14 @@ The key rule is simple: every milestone must leave behind a repository that stil
 
 ## Current Position
 
-NexusFS currently sits between:
-
 - `M0` complete
-- `M1` partially implemented
+- `M1` complete
+- `M2` next
 
-The workspace, daemon, storage baseline, docs, and initial local-core primitives are already real. The next milestones focus on completing the local state machine and then layering in replication, encryption, and higher-level facades.
+The workspace, daemon, storage baseline, docs, and the local filesystem core are real: a
+signed operation log drives CRDT-backed namespace state, files round-trip through the CLI,
+and state survives restart. The next milestones layer replication, encryption, and
+higher-level facades on top of that.
 
 ## Milestone Roadmap
 
@@ -49,35 +51,33 @@ Exit criteria:
 
 ### M1: Local Filesystem Core
 
-Status: In progress
+Status: Complete
 
 Primary goal:
 
 - complete a reliable single-node local filesystem core with persistent state
 
-Core deliverables:
+Delivered:
 
 - canonical object encoding and deterministic hashing
 - chunking and content-addressed blob writes
-- persistent snapshots and head management
-- full oplog persistence and replay protection
-- real directory and inode state mutation
-- CRDT-backed namespace state
+- CRDT-backed namespace state: OR-Map directories and LWW inode registers
+- deterministic inode allocation derived from operation ids
+- full apply logic for Mkdir, CreateFile, Write, Rename, Unlink and SetAttr
+- signature verification enforced before any state change
+- pending-operation queue for causally early operations
+- deterministic conflict naming applied in live directory reads
+- path resolution, directory listing and whole-file reads
+- snapshots built from live state, committing to both structure and content
+- CLI verbs (`mkdir`, `put`, `cat`, `ls`, `rm`, `mv`) and expanded admin API
 
-Still required to complete M1:
-
-- replace placeholder `apply_op_minimal` behavior with full state application
-- persist mutable directory and inode mappings, not just heads and ops
-- build snapshots from actual namespace state
-- represent rename, unlink, and conflicts deterministically in live state
-- expose local storage and state stats through the admin API
-
-Exit criteria:
+Exit criteria — all met:
 
 - a sequence of local file operations mutates persisted namespace state correctly
 - restart preserves local filesystem state, oplog state, and current head
 - idempotent operation replay is verified by tests
-- admin APIs can report head, oplog, and storage state clearly
+- the same operation set applied in different orders converges to one state root
+- admin APIs report head, state root, oplog and storage state
 
 ### M2: First External Facade
 

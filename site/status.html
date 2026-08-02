@@ -32,12 +32,12 @@
         <section class="hero hero-compact reveal">
           <div class="hero-copy">
             <p class="eyebrow">Current Status</p>
-            <h1>Implemented foundations, not full end-to-end sync yet.</h1>
+            <h1>A working local filesystem, not distributed yet.</h1>
             <p class="lede">
-              NexusFS is in an early but practical milestone: the local-core baseline
-              is real, the workspace is runnable, and the public project surface is in
-              place. Full replication, facades, and proof enforcement are still in the
-              backlog.
+              Milestone M1 is complete: files can be created, written, listed, read back,
+              renamed and removed through a signed operation log applied to CRDT-backed
+              namespace state, and that state survives restart. Replication, facades,
+              encryption at rest, and proof enforcement are still in the backlog.
             </p>
           </div>
         </section>
@@ -47,8 +47,9 @@
             <article class="feature-card">
               <h3>Implemented now</h3>
               <p>
-                Runnable daemon and CLI, sled-backed local persistence, canonical
-                object hashing, chunked CAS writes, snapshots, and minimal admin APIs.
+                A working local filesystem: signed operations, CRDT namespace state,
+                deterministic conflict resolution, path resolution and file reads,
+                filesystem CLI verbs, and a browsable admin console.
               </p>
             </article>
             <article class="feature-card">
@@ -79,18 +80,20 @@
           <div class="content-panel">
             <h2>Implemented now</h2>
             <ul class="list-block">
-              <li>Single-binary workspace and runnable `nexusfs` commands</li>
+              <li>Filesystem CLI: `mkdir`, `put`, `cat`, `ls`, `rm`, `mv`</li>
               <li>Persistent config, device identity, and admin token flows</li>
               <li>Sled-backed blob and KV storage with tests</li>
-              <li>Canonical object encoding, hashing, chunking, and snapshot heads</li>
-              <li>Minimal idempotent oplog application and clock summaries</li>
-              <li>Embedded admin API for status, head, and oplog summary</li>
+              <li>Canonical object encoding, hashing, and chunked CAS writes</li>
+              <li>CRDT-backed directory and inode state with deterministic conflict naming</li>
+              <li>Signature verification enforced before any state change</li>
+              <li>Pending-operation queue for causally early operations</li>
+              <li>Snapshots committing to both directory structure and file content</li>
+              <li>Admin API and browsable console for state, storage, and oplog</li>
             </ul>
           </div>
           <div class="content-panel">
             <h2>Still in backlog</h2>
             <ul class="list-block">
-              <li>Full CRDT-backed directory and inode mutation logic</li>
               <li>Real peer replication and blob transfer</li>
               <li>Integrated encryption-at-rest write path</li>
               <li>Automatic proof attachment and verification enforcement</li>

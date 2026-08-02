@@ -2,3 +2,6 @@
 /data
 **/*.log
 .DS_Store
+
+# Machine-local build settings (contains an absolute path).
+/.cargo/config.toml
