@@ -41,6 +41,7 @@ pub fn router(state: AdminState) -> Router {
         .route("/api/storage/stats", get(storage_stats))
         .route("/api/fs/ls", get(fs_ls))
         .route("/api/oplog/recent", get(oplog_recent))
+        .route("/api/peers", get(peers))
         .with_state(state)
 }
 
@@ -274,4 +275,29 @@ fn describe_op(kind: &nexusfs_proto::FsOpKind) -> String {
         Unlink { parent, name } => format!("unlink {name} from {parent:x}"),
         SetAttr { inode, .. } => format!("setattr {inode:x}"),
     }
+}
+
+#[derive(Serialize)]
+struct PeersResp {
+    /// False when replication is not compiled in or failed to start.
+    enabled: bool,
+    peers: Vec<crate::PeerView>,
+}
+
+async fn peers(
+    State(st): State<AdminState>,
+    headers: HeaderMap,
+) -> Result<Json<PeersResp>, (StatusCode, String)> {
+    require_token(&headers, &st.token).map_err(|c| (c, "unauthorized".into()))?;
+
+    Ok(Json(match &st.peers {
+        Some(source) => PeersResp {
+            enabled: true,
+            peers: source.peers(),
+        },
+        None => PeersResp {
+            enabled: false,
+            peers: vec![],
+        },
+    }))
 }

@@ -20,21 +20,19 @@ and admin observability — landed with milestone M1. See `./current-status.md`.
 
 ## Now
 
-### Replication Core
+### Encryption And Proofs (M4)
 
-- Finish Hello and HelloAck handling.
-- Implement clock summary comparison and missing-range requests.
-- Add op batch transfer with backpressure-aware batching.
-- Add blob request and transfer flows.
-- Verify remote data before it touches local state.
+- Encrypt chunk bytes in the live write path.
+- Implement `Envelope::open` and store per-file key envelopes.
+- Attach transparent proof bundles to new operations automatically.
+- Verify proof bundles on receipt and reject malformed ones.
 
-### Shared Apply Pipeline
+### Replication Follow-Ups
 
-- Route remote operations through the existing `apply_op` — local and remote must not
-  diverge. Verification, conflict resolution, and pending handling for both missing
-  state dependencies and missing blobs already exist.
-- Call `retry_pending` when a blob transfer completes, so writes parked on unfetched
-  chunks apply as soon as their content lands.
+- Push notification of new operations, so peers do not wait for the poll interval.
+- Delta-encoded operation ranges rather than whole-op batches.
+- Peer enrolment out of band, so trust-on-first-use is not the only option.
+- Bandwidth and energy-aware scheduling of transfers.
 
 ### Second Facade
 

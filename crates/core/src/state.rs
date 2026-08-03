@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -214,20 +214,62 @@ impl CoreState {
         Ok(())
     }
 
-    /// Compute a clock summary by scanning oplog keys.
-    /// This is v0 and may be optimized later.
+    /// Highest *contiguous* operation counter held per device.
+    ///
+    /// Contiguity is what makes this safe to diff against. Reporting the maximum
+    /// instead would silently lose data: a node holding operations 1, 2 and 5 would
+    /// claim 5, and a peer would send nothing above that — leaving 3 and 4 missing
+    /// forever. Claiming 2 costs a few redundant operations, which dedupe on arrival.
+    ///
+    /// This is v0 and scans the whole oplog; an incremental index can replace it.
     pub fn clock_summary(&self) -> Result<ClockSummary> {
         let rows = self.stores.kv.scan_prefix(CF_OPLOG, OP_PREFIX)?;
-        let mut max: BTreeMap<DeviceId, u64> = BTreeMap::new();
+
+        let mut seen: BTreeMap<DeviceId, BTreeSet<u64>> = BTreeMap::new();
         for (k, _v) in rows {
             if let Some((did, ctr)) = parse_op_key(&k) {
-                let e = max.entry(did).or_insert(0);
-                *e = (*e).max(ctr);
+                seen.entry(did).or_default().insert(ctr);
             }
         }
-        Ok(ClockSummary {
-            entries: max.into_iter().collect(),
-        })
+
+        let entries = seen
+            .into_iter()
+            .map(|(did, counters)| {
+                // Counters start at 1, so walk up from there while each is present.
+                let mut contiguous = 0u64;
+                for c in &counters {
+                    if *c == contiguous + 1 {
+                        contiguous = *c;
+                    } else {
+                        break;
+                    }
+                }
+                (did, contiguous)
+            })
+            .collect();
+
+        Ok(ClockSummary { entries })
+    }
+
+    /// Operations this node holds that `remote` does not, oldest first.
+    ///
+    /// `limit` bounds a single batch; the caller repeats until nothing is returned.
+    pub fn ops_missing_for(&self, remote: &ClockSummary, limit: usize) -> Result<Vec<FsOp>> {
+        let known: BTreeMap<DeviceId, u64> = remote.entries.iter().copied().collect();
+
+        let mut out = Vec::new();
+        for (k, v) in self.stores.kv.scan_prefix(CF_OPLOG, OP_PREFIX)? {
+            let Some((did, ctr)) = parse_op_key(&k) else {
+                continue;
+            };
+            if ctr > known.get(&did).copied().unwrap_or(0) {
+                out.push(decode::<FsOp>(&v)?);
+                if out.len() >= limit {
+                    break;
+                }
+            }
+        }
+        Ok(out)
     }
 
     // ---- bootstrap --------------------------------------------------------------

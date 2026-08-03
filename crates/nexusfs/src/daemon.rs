@@ -10,6 +10,31 @@ use nexusfs_storage::sled_store::SledStore;
 
 use crate::config::Config;
 
+/// Bridges the replication registry to the admin API without either crate depending
+/// on the other.
+#[cfg(all(feature = "admin", feature = "quic"))]
+struct PeerBridge(nexusfs_net::peers::PeerRegistry);
+
+#[cfg(all(feature = "admin", feature = "quic"))]
+impl nexusfs_admin::PeerSource for PeerBridge {
+    fn peers(&self) -> Vec<nexusfs_admin::PeerView> {
+        self.0
+            .snapshot()
+            .into_iter()
+            .map(|p| nexusfs_admin::PeerView {
+                address: p.address,
+                device_id: p.device_id,
+                last_attempt_ms: p.last_attempt_ms,
+                last_success_ms: p.last_success_ms,
+                last_error: p.last_error,
+                ops_received: p.ops_received,
+                blobs_received: p.blobs_received,
+                syncs: p.syncs,
+            })
+            .collect()
+    }
+}
+
 pub async fn run_status(config_path: PathBuf) -> Result<()> {
     let cfg = Config::load(&config_path)?;
     let (core, _identity, admin_token) = open_core(&cfg)?;
@@ -56,13 +81,25 @@ pub async fn run_daemon(config_path: PathBuf) -> Result<()> {
     // Bootstrap local repo if empty.
     core.bootstrap_if_needed()?;
 
+    // Shared so the admin API can report sync state while syncs are in flight.
+    #[cfg(feature = "quic")]
+    let peer_registry = nexusfs_net::peers::PeerRegistry::new();
+
     // Start admin server.
     #[cfg(feature = "admin")]
     {
         let addr = cfg.admin_addr()?;
+
+        #[cfg(feature = "quic")]
+        let peers: Option<Arc<dyn nexusfs_admin::PeerSource>> =
+            Some(Arc::new(PeerBridge(peer_registry.clone())));
+        #[cfg(not(feature = "quic"))]
+        let peers: Option<Arc<dyn nexusfs_admin::PeerSource>> = None;
+
         let st = nexusfs_admin::AdminState {
             core: Arc::new(core.clone()),
             token: admin_token.clone(),
+            peers,
         };
         tokio::spawn(async move {
             if let Err(e) = nexusfs_admin::serve(addr, st).await {
@@ -98,12 +135,47 @@ pub async fn run_daemon(config_path: PathBuf) -> Result<()> {
         });
     }
 
-    // The device identity currently only signs operations for the S3 facade; without
-    // that feature the daemon merely holds it open for the replication work to come.
-    #[cfg(not(feature = "s3"))]
-    let _ = &identity;
+    // Start replication: serve inbound sessions, and pull from configured peers.
+    #[cfg(feature = "quic")]
+    {
+        let listen = cfg.net_addr()?;
+        let ctx = nexusfs_net::session::SessionCtx {
+            core: core.clone(),
+            identity: identity.clone(),
+            device_id: core.device_id,
+            trust: nexusfs_net::trust::TrustPolicy { tofu: cfg.net.tofu },
+        };
 
-    // TODO(feature=quic): start replication manager, peer connections, etc.
+        match nexusfs_net::quic::endpoint(listen) {
+            Ok(endpoint) => {
+                info!(%listen, peers = cfg.net.peers.len(), "replication enabled");
+                if cfg.net.tofu {
+                    tracing::warn!(
+                        "trust-on-first-use is enabled; the first connection from an \
+                         unknown device will be trusted and its key pinned"
+                    );
+                }
+
+                tokio::spawn(nexusfs_net::peers::accept_loop(
+                    endpoint.clone(),
+                    ctx.clone(),
+                ));
+                tokio::spawn(nexusfs_net::peers::sync_loop(
+                    endpoint,
+                    cfg.net.peers.clone(),
+                    ctx,
+                    std::time::Duration::from_secs(cfg.net.sync_interval_secs.max(1)),
+                    peer_registry.clone(),
+                ));
+            }
+            Err(e) => tracing::error!(error = %format!("{e:#}"), "replication failed to start"),
+        }
+    }
+
+    // Identity signs operations for the S3 facade and the replication handshake; with
+    // neither feature the daemon merely holds it open.
+    #[cfg(not(any(feature = "s3", feature = "quic")))]
+    let _ = &identity;
 
     info!("nexusfs daemon running. Press Ctrl+C to stop.");
     tokio::signal::ctrl_c().await?;

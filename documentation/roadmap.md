@@ -19,7 +19,8 @@ The key rule is simple: every milestone must leave behind a repository that stil
 - `M0` complete
 - `M1` complete
 - `M2` complete via the S3-like facade
-- `M3` next
+- `M3` complete: two nodes converge over QUIC
+- `M4` next
 
 The workspace, daemon, storage baseline, docs, and the local filesystem core are real: a
 signed operation log drives CRDT-backed namespace state, files round-trip through the CLI,
@@ -118,7 +119,7 @@ Exit criteria:
 
 ### M3: Verified Replication
 
-Status: Not started
+Status: Complete
 
 Primary goal:
 

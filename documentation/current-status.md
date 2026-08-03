@@ -6,11 +6,13 @@ This page summarizes what NexusFS currently implements in the repository and wha
 
 ## Overall State
 
-**M1 is complete.** NexusFS is a working single-node filesystem: files can be created,
-written, listed, read back, renamed and removed, and that state survives restart.
+**Milestones M0 through M3 are complete.** NexusFS is a working distributed filesystem:
+files round-trip through a signed operation log applied to CRDT-backed namespace state,
+an S3-compatible API exposes that state over HTTP, and two nodes converge over QUIC with
+every operation and chunk verified before it is accepted.
 
-It is not yet a distributed filesystem. Nothing replicates between nodes, nothing is
-encrypted at rest, and no external facade (S3, FUSE) is implemented.
+Not yet implemented: encryption at rest, proof generation and enforcement, the
+POSIX/FUSE facade, energy-aware scheduling, and ZK proofs.
 
 ## Implemented Now
 
@@ -76,7 +78,7 @@ encrypted at rest, and no external facade (S3, FUSE) is implemented.
 
 `nexusfs` supports `daemon`, `status`, `mkdir [-p]`, `put`, `cat`, `ls`, `rm` and `mv`.
 Every mutating verb builds a signed operation and applies it through the same pipeline
-replication will use.
+replication uses.
 
 ### S3-Compatible Facade
 
@@ -96,6 +98,30 @@ ACLs, CORS and lifecycle rules. Authentication is an optional shared secret in
 ETags are BLAKE3 rather than MD5, which clients that recompute them to verify uploads
 will notice.
 
+### Networked Replication
+
+Two nodes converge over QUIC. The session is pull-based and one-directional — a node
+asks a peer for what it lacks and nothing is pushed — so each session has one owner of
+the loop and no negotiation about who sends next. Convergence comes from each node
+pulling from the other.
+
+Operations transfer before content: a `ClockSummary` diff selects the operations a peer
+lacks, and only then does the puller ask for the chunks those operations turned out to
+reference. Writes whose content has not arrived park and apply automatically once it
+does.
+
+Verification is not optional anywhere on this path. Operation signatures are checked by
+the same `apply_op` local writes use, and chunk hashes are recomputed before content is
+stored, so a peer cannot substitute bytes for a hash that was requested.
+
+Peer identity is an ed25519 key pinned on first use, independent of TLS. A device
+presenting a different key than the one pinned is refused whatever the policy says.
+`/api/peers` reports each configured peer's last attempt, last success, error and
+transfer counts.
+
+Not implemented: push notification of new operations (peers poll on an interval),
+delta-encoded operation ranges, and bandwidth or energy-aware scheduling.
+
 ### Browser Playground
 
 `crates/wasm` compiles the core to `wasm32-unknown-unknown` against the in-memory
@@ -106,34 +132,34 @@ cargo and needs no wasm-bindgen toolchain; the Pages workflow builds it on deplo
 rather than serving a committed binary.
 
 Note that the playground's "sync" hands one replica's oplog and blobs to the other
-in-process; it is not the network protocol, which does not exist yet.
+in-process. It exercises the same apply pipeline, but it is not the QUIC protocol the
+daemon uses between real nodes.
 
 ### Test Coverage
 
-22 tests, including order-independent convergence (the same operation set applied in
+55 tests, including order-independent convergence (the same operation set applied in
 different orders yields an identical state root), idempotent re-apply, pending-op drain,
 concurrent-create conflict naming, concurrent-write resolution, rename-vs-unlink,
-subtree-cycle refusal, and restart persistence.
+subtree-cycle refusal, restart persistence, S3 key mapping and pagination, and
+replication over both an in-memory pipe and real QUIC sockets — covering unknown-peer
+refusal, key-rotation refusal, forged-operation rejection and corrupted-content
+rejection.
 
 ## Partially Implemented Or Present As Scaffolding
 
-- QUIC transport setup and a signed Hello handshake exist, but there is no peer manager
-  and no replication behavior.
 - Transparent proof structures exist, but proofs are not generated or enforced.
 - Crypto helpers exist for signing, AEAD, and envelopes. Operation signing is live;
   at-rest encryption is not integrated into the write path, and `Envelope::open` is
   unimplemented.
-- S3, POSIX/FUSE, privacy, energy, and ZK crates are present but remain stubs.
+- POSIX/FUSE, privacy, energy and ZK crates are present but remain stubs.
 
 ## Backlog
 
 ### Highest-Priority Backlog
 
-- Implement the peer replication manager and connection lifecycle.
-- Complete Hello and feature negotiation end to end.
-- Implement Have/WantOps/OpsBatch synchronization.
-- Implement WantBlobs/BlobsBatch transfer and remote blob fulfillment.
-- Route remote operations through the existing `apply_op` pipeline unchanged.
+- Integrate chunk encryption into the live storage path (M4).
+- Attach and enforce transparent proof bundles (M4).
+- Replace polling with push notification of new operations.
 
 ### Security and Verification Backlog
 
@@ -163,7 +189,8 @@ subtree-cycle refusal, and restart persistence.
 - M0 is complete.
 - M1 is complete.
 - M2 is complete via the S3 facade; the POSIX/FUSE alternative remains unimplemented.
-- M3 and beyond are backlog, except for crate scaffolding and interface placeholders.
+- M3 is complete: two nodes converge over QUIC with verified remote apply.
+- M4 and beyond are backlog, except for crate scaffolding and interface placeholders.
 
 ## Recommended Next Step
 

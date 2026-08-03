@@ -6,8 +6,12 @@ device_name = "dev-node"
 
 [net]
 listen = "127.0.0.1:4444"
+# Peer addresses to pull from, e.g. ["127.0.0.1:4445"].
 peers = []
+# Trust an unknown device the first time it connects and pin its key. Disable this
+# and enrol peers explicitly if first contact could be intercepted.
 tofu = true
+sync_interval_secs = 15
 
 [admin]
 bind = "127.0.0.1:7070"

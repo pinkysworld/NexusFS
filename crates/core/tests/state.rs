@@ -57,21 +57,67 @@ fn bootstrap_is_identical_across_devices() {
 }
 
 #[test]
-fn clock_summary_tracks_applied_ops() {
+fn clock_summary_reports_the_highest_contiguous_counter() {
+    // The summary is what peers diff against, so it must mean "I have everything up
+    // to N" and not "the largest number I have seen". Claiming a counter above a gap
+    // would cause the peer to skip the missing operations permanently.
     let dir = tempfile::tempdir().unwrap();
     let core = bootstrapped(dir.path(), 0x0a);
     let id = Identity::generate();
 
+    // Device 0x0a holds a complete run: 1, 2.
     core.apply_op(&signed_op(&id, 0x0a, 1, 1_000, mkdir(ROOT_INODE, "one")))
         .unwrap();
     core.apply_op(&signed_op(&id, 0x0a, 2, 2_000, mkdir(ROOT_INODE, "two")))
         .unwrap();
+    // Device 0x0b holds only counter 7 — everything below it is missing.
     core.apply_op(&signed_op(&id, 0x0b, 7, 3_000, mkdir(ROOT_INODE, "three")))
         .unwrap();
 
     let entries = core.clock_summary().unwrap().entries;
-    assert_eq!(entries.len(), 2);
     assert!(entries.iter().any(|(d, c)| d.0 == 0x0a && *c == 2));
-    assert!(entries.iter().any(|(d, c)| d.0 == 0x0b && *c == 7));
+    assert!(
+        entries.iter().any(|(d, c)| d.0 == 0x0b && *c == 0),
+        "a device with a gap at 1 has no contiguous prefix, so it must claim 0"
+    );
     assert_eq!(core.applied_count().unwrap(), 3);
+}
+
+#[test]
+fn ops_missing_for_respects_what_the_peer_already_has() {
+    let dir = tempfile::tempdir().unwrap();
+    let core = bootstrapped(dir.path(), 0x0c);
+    let id = Identity::generate();
+
+    for counter in 1..=4 {
+        core.apply_op(&signed_op(
+            &id,
+            0x0c,
+            counter,
+            counter * 1_000,
+            mkdir(ROOT_INODE, &format!("d{counter}")),
+        ))
+        .unwrap();
+    }
+
+    // A peer that has nothing should be offered everything.
+    let empty = nexusfs_proto::ClockSummary { entries: vec![] };
+    assert_eq!(core.ops_missing_for(&empty, 100).unwrap().len(), 4);
+
+    // A peer already holding the first two should be offered only the last two.
+    let partial = nexusfs_proto::ClockSummary {
+        entries: vec![(nexusfs_proto::DeviceId(0x0c), 2)],
+    };
+    let missing = core.ops_missing_for(&partial, 100).unwrap();
+    assert_eq!(missing.len(), 2);
+    assert!(missing.iter().all(|op| op.id.counter > 2));
+
+    // A caught-up peer should be offered nothing.
+    let caught_up = nexusfs_proto::ClockSummary {
+        entries: vec![(nexusfs_proto::DeviceId(0x0c), 4)],
+    };
+    assert!(core.ops_missing_for(&caught_up, 100).unwrap().is_empty());
+
+    // The limit bounds a batch.
+    assert_eq!(core.ops_missing_for(&empty, 3).unwrap().len(), 3);
 }

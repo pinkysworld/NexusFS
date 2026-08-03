@@ -1,30 +1,46 @@
 #!/usr/bin/env bash
+# Run two NexusFS nodes locally and watch them converge.
+#
+# Seeds each node with a different file while both are stopped, then starts them as
+# peers. Within a few seconds both should report the same state root and hold both
+# files — including the deterministically renamed copy of the directory each created
+# independently while apart.
 set -euo pipefail
 
-# Dev helper: run two NexusFS daemons locally on different ports/data dirs.
-# Requires: cargo
-
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DEV="$ROOT_DIR/.dev"
+BIN="${CARGO_TARGET_DIR:-$ROOT_DIR/target}/debug/nexusfs"
 
-mkdir -p "$ROOT_DIR/.dev/nodeA" "$ROOT_DIR/.dev/nodeB"
+cleanup() {
+  [[ -n "${A_PID:-}" ]] && kill "$A_PID" 2>/dev/null || true
+  [[ -n "${B_PID:-}" ]] && kill "$B_PID" 2>/dev/null || true
+}
+trap cleanup EXIT
 
-cat > "$ROOT_DIR/.dev/nodeA/nexusfs.toml" <<'EOF'
+rm -rf "$DEV"
+mkdir -p "$DEV"
+
+write_config() {
+  local name=$1 listen=$2 peer=$3 admin=$4 s3=$5
+  cat > "$DEV/$name.toml" <<EOF
 [node]
-data_dir = "./.dev/nodeA/data"
-device_name = "nodeA"
+data_dir = "$DEV/$name"
+device_name = "$name"
 
 [net]
-listen = "127.0.0.1:4444"
-peers = []
+listen = "127.0.0.1:$listen"
+peers = ["127.0.0.1:$peer"]
 tofu = true
+sync_interval_secs = 2
 
 [admin]
-bind = "127.0.0.1:7070"
-token = ""
+bind = "127.0.0.1:$admin"
+token = "$name-token"
 
 [s3]
 enabled = false
-bind = "127.0.0.1:9000"
+bind = "127.0.0.1:$s3"
+token = ""
 
 [posix]
 enabled = false
@@ -39,46 +55,57 @@ enabled = true
 battery_low_pct = 20
 temp_high_c = 70
 EOF
+}
 
-cat > "$ROOT_DIR/.dev/nodeB/nexusfs.toml" <<'EOF'
-[node]
-data_dir = "./.dev/nodeB/data"
-device_name = "nodeB"
+write_config alice 4444 4445 7070 9000
+write_config bob   4445 4444 7071 9001
 
-[net]
-listen = "127.0.0.1:5555"
-peers = []
-tofu = true
+echo "==> building"
+cargo build -q -p nexusfs --features "admin,quic"
 
-[admin]
-bind = "127.0.0.1:8080"
-token = ""
+echo "==> seeding both nodes while they are stopped"
+echo "written on alice" > "$DEV/a.txt"
+echo "written on bob"   > "$DEV/b.txt"
+"$BIN" mkdir --config "$DEV/alice.toml" /shared
+"$BIN" put   --config "$DEV/alice.toml" "$DEV/a.txt" /shared/from-alice.txt
+"$BIN" mkdir --config "$DEV/bob.toml"   /shared
+"$BIN" put   --config "$DEV/bob.toml"   "$DEV/b.txt" /shared/from-bob.txt
 
-[s3]
-enabled = false
-bind = "127.0.0.1:9001"
+echo "    alice: $("$BIN" status --config "$DEV/alice.toml" | grep state_root)"
+echo "    bob:   $("$BIN" status --config "$DEV/bob.toml"   | grep state_root)"
 
-[posix]
-enabled = false
-mountpoint = "/mnt/nexus"
+echo "==> starting both daemons"
+"$BIN" daemon --config "$DEV/alice.toml" > "$DEV/alice.log" 2>&1 &
+A_PID=$!
+"$BIN" daemon --config "$DEV/bob.toml" > "$DEV/bob.log" 2>&1 &
+B_PID=$!
 
-[security]
-encrypt_at_rest = false
-proof_mode = "transparent"
+root_of() {
+  curl -s -H "x-nexusfs-token: $2-token" "http://127.0.0.1:$1/api/status" \
+    | sed -E 's/.*"state_root":"([^"]*)".*/\1/'
+}
 
-[energy]
-enabled = true
-battery_low_pct = 20
-temp_high_c = 70
-EOF
+echo "==> waiting for convergence"
+for _ in $(seq 1 30); do
+  A=$(root_of 7070 alice 2>/dev/null || true)
+  B=$(root_of 7071 bob 2>/dev/null || true)
+  if [[ -n "$A" && "$A" == "$B" ]]; then
+    echo
+    echo "converged on $A"
+    echo
+    echo "alice /:"; curl -s -H "x-nexusfs-token: alice-token" "http://127.0.0.1:7070/api/fs/ls?path=/"
+    echo
+    echo "bob   /:"; curl -s -H "x-nexusfs-token: bob-token"   "http://127.0.0.1:7071/api/fs/ls?path=/"
+    echo
+    echo "peers:";   curl -s -H "x-nexusfs-token: alice-token" "http://127.0.0.1:7070/api/peers"
+    echo
+    echo
+    echo "Consoles: http://127.0.0.1:7070 and http://127.0.0.1:7071"
+    echo "Ctrl+C to stop."
+    wait
+  fi
+  sleep 1
+done
 
-echo "Starting nodeA admin: http://127.0.0.1:7070"
-cargo run -p nexusfs -- daemon --config "$ROOT_DIR/.dev/nodeA/nexusfs.toml" &
-PID_A=$!
-
-echo "Starting nodeB admin: http://127.0.0.1:8080"
-cargo run -p nexusfs -- daemon --config "$ROOT_DIR/.dev/nodeB/nexusfs.toml" &
-PID_B=$!
-
-trap 'kill $PID_A $PID_B 2>/dev/null || true' EXIT
-wait
+echo "did not converge within 30s; see $DEV/alice.log and $DEV/bob.log" >&2
+exit 1

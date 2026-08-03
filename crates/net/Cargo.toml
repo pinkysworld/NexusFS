@@ -20,6 +20,11 @@ rcgen.workspace = true
 
 nexusfs-proto = { path = "../proto" }
 nexusfs-crypto = { path = "../crypto" }
+nexusfs-core = { path = "../core" }
 rand.workspace = true
 serde.workspace = true
 
+
+[dev-dependencies]
+nexusfs-storage = { path = "../storage" }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "io-util"] }

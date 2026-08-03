@@ -158,6 +158,35 @@ impl CoreState {
         Ok(self.stores.kv.scan_prefix(CF_OPLOG, PENDING_PREFIX)?.len())
     }
 
+    /// Operations parked awaiting dependencies.
+    pub fn pending_ops(&self) -> Result<Vec<FsOp>> {
+        self.stores
+            .kv
+            .scan_prefix(CF_OPLOG, PENDING_PREFIX)?
+            .into_iter()
+            .map(|(_k, v)| decode::<FsOp>(&v).context("decode pending op"))
+            .collect()
+    }
+
+    /// Content hashes referenced by parked operations but absent from the local store.
+    ///
+    /// This is precisely the set a peer needs to send to unblock us, which is why
+    /// replication asks for it rather than guessing from the whole oplog.
+    pub fn missing_chunk_hashes(&self) -> Result<Vec<Hash>> {
+        let mut wanted = std::collections::BTreeSet::new();
+
+        for op in self.pending_ops()? {
+            if let FsOpKind::Write { chunks, .. } = &op.kind {
+                for chunk in chunks {
+                    if !self.stores.blobs.has(&chunk.hash)? {
+                        wanted.insert(chunk.hash);
+                    }
+                }
+            }
+        }
+        Ok(wanted.into_iter().collect())
+    }
+
     /// Retry parked operations and re-snapshot if any applied.
     ///
     /// `apply_op` drains automatically, which covers ops unblocked by other ops. This

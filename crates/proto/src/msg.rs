@@ -52,10 +52,19 @@ pub enum Msg {
         nonce: [u8; 32],
         sig: Vec<u8>,
     },
+    /// Response to Hello.
+    ///
+    /// Carries the responder's own identity, because the initiator has to decide
+    /// whether to trust whoever answered — and echoes the initiator's nonce under the
+    /// responder's signature, so the reply cannot be replayed from an earlier session
+    /// or forged by a party that does not hold the key.
     HelloAck {
         accepted: bool,
         reason: Option<String>,
         features: Vec<Feature>,
+        peer_device: DeviceId,
+        peer_pubkey: [u8; 32],
+        /// The nonce from the Hello being answered.
         nonce: [u8; 32],
         sig: Vec<u8>,
     },
@@ -91,6 +100,9 @@ pub enum Msg {
 
     Ping,
     Pong,
+
+    /// Initiator has everything it asked for; the responder may close.
+    Bye,
 
     Error {
         code: u16,

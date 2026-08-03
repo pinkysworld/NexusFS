@@ -36,7 +36,15 @@ pub struct Node {
 pub struct Net {
     pub listen: String,
     pub peers: Vec<String>,
+    /// Trust an unknown device's key the first time it connects.
     pub tofu: bool,
+    /// Seconds between pulls from each configured peer.
+    #[serde(default = "default_sync_interval")]
+    pub sync_interval_secs: u64,
+}
+
+fn default_sync_interval() -> u64 {
+    15
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

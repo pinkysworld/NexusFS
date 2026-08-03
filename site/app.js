@@ -22,8 +22,8 @@ const milestoneData = [
   {
     label: "M3",
     title: "Verified replication",
-    status: "todo",
-    body: "Peer manager, oplog synchronization, blob transfer and verified remote apply. The transport exists; the protocol above it does not."
+    status: "done",
+    body: "Two nodes converge over QUIC. Operations transfer before content, signatures and chunk hashes are verified before anything is accepted, and peer keys are pinned on first use."
   },
   {
     label: "M4",

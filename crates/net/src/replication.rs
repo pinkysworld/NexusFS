@@ -105,6 +105,104 @@ pub fn verify_hello(msg: &Msg) -> Result<PeerHello> {
     })
 }
 
+/// Canonical bytes covered by a HelloAck signature.
+///
+/// Includes the initiator's nonce, which binds the reply to one specific Hello. Without
+/// it a recorded HelloAck could be replayed at a later session by someone who never
+/// held the key.
+#[derive(serde::Serialize)]
+struct AckToSign<'a> {
+    accepted: bool,
+    reason: &'a Option<String>,
+    features: &'a [String],
+    peer_device: DeviceId,
+    peer_pubkey: [u8; 32],
+    nonce: [u8; 32],
+}
+
+/// Build a signed HelloAck answering the Hello that carried `nonce`.
+pub fn make_hello_ack(
+    identity: &Identity,
+    device_id: DeviceId,
+    accepted: bool,
+    reason: Option<String>,
+    features: Vec<String>,
+    nonce: [u8; 32],
+) -> Result<Msg> {
+    let to_sign = AckToSign {
+        accepted,
+        reason: &reason,
+        features: &features,
+        peer_device: device_id,
+        peer_pubkey: identity.pubkey_bytes(),
+        nonce,
+    };
+    let bytes = postcard::to_stdvec(&to_sign).context("encode hello ack to sign")?;
+    let sig = sign_bytes(identity.signing_key(), &bytes);
+
+    Ok(Msg::HelloAck {
+        accepted,
+        reason,
+        features,
+        peer_device: device_id,
+        peer_pubkey: identity.pubkey_bytes(),
+        nonce,
+        sig,
+    })
+}
+
+/// Verify a HelloAck and confirm it answers the nonce we sent.
+pub fn verify_hello_ack(msg: &Msg, expected_nonce: &[u8; 32]) -> Result<PeerHello> {
+    let Msg::HelloAck {
+        accepted,
+        reason,
+        features,
+        peer_device,
+        peer_pubkey,
+        nonce,
+        sig,
+    } = msg
+    else {
+        anyhow::bail!("not a HelloAck message");
+    };
+
+    if nonce != expected_nonce {
+        anyhow::bail!("HelloAck answered a different handshake");
+    }
+
+    let to_sign = AckToSign {
+        accepted: *accepted,
+        reason,
+        features,
+        peer_device: *peer_device,
+        peer_pubkey: *peer_pubkey,
+        nonce: *nonce,
+    };
+    let bytes = postcard::to_stdvec(&to_sign).context("encode hello ack to sign")?;
+    verify_sig(peer_pubkey, &bytes, sig).context("HelloAck signature")?;
+
+    if !accepted {
+        anyhow::bail!(
+            "peer refused the handshake: {}",
+            reason.clone().unwrap_or_default()
+        );
+    }
+
+    Ok(PeerHello {
+        device_id: *peer_device,
+        pubkey: *peer_pubkey,
+        features: features.clone(),
+    })
+}
+
+/// Read the nonce out of a Hello, so a responder can echo it under its own signature.
+pub fn hello_nonce(msg: &Msg) -> Result<[u8; 32]> {
+    match msg {
+        Msg::Hello { nonce, .. } => Ok(*nonce),
+        _ => anyhow::bail!("not a Hello message"),
+    }
+}
+
 /// Helper to build a MessageEnvelope.
 pub fn env(msg_id: u64, reply_to: Option<u64>, payload: Msg) -> MessageEnvelope {
     MessageEnvelope {

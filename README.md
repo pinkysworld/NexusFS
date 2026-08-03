@@ -5,13 +5,12 @@
 A Rust workspace building toward a verifiable, offline-first distributed filesystem in a
 single binary.
 
-> **Status — milestones M0–M2 of 8 complete.** The local filesystem works: files can be
-> created, written, listed, read back, renamed and removed through a signed operation
-> log applied to CRDT-backed namespace state, and that state survives restart. An
-> S3-compatible facade exposes the same state machine over HTTP. Networked replication,
-> encryption at rest, the POSIX/FUSE facade, energy-aware scheduling and ZK proofs are
-> **not implemented yet**. See
-> [`documentation/current-status.md`](documentation/current-status.md).
+> **Status — milestones M0–M3 of 8 complete.** Files round-trip through a signed
+> operation log applied to CRDT-backed namespace state, an S3-compatible facade exposes
+> that state over HTTP, and **two nodes converge over QUIC** with every operation and
+> chunk verified before it is accepted. Encryption at rest, proof enforcement, the
+> POSIX/FUSE facade, energy-aware scheduling and ZK proofs are **not implemented yet**.
+> See [`documentation/current-status.md`](documentation/current-status.md).
 
 ## Try it in your browser
 
@@ -83,6 +82,30 @@ the daemon holds the store — query the running daemon through the admin API in
 
 ---
 
+## Replication
+
+Set `net.peers` to the addresses of other nodes and run the daemon with the `quic`
+feature. Each node periodically pulls whatever it is missing from its peers.
+
+```bash
+./scripts/dev_run_two_nodes.sh
+```
+
+That seeds two nodes with different content while both are stopped, starts them as
+peers, and waits until they report the same state root — including the deterministically
+renamed copy of the directory each created independently.
+
+How it works: a node sends its clock summary, the peer replies with the operations it
+lacks, and only then does it request the chunks those operations reference. Operation
+signatures and chunk hashes are both verified before anything is accepted, using the
+same apply path local writes use.
+
+Peer identity is an ed25519 key pinned on first use — TLS provides transport encryption
+only, and certificates are not the trust anchor. A device presenting a different key
+than the one pinned is refused. Set `net.tofu = false` to require explicit enrolment.
+
+---
+
 ## S3-compatible API
 
 Set `s3.enabled = true` in the config and run the daemon with the `s3` feature. Objects
@@ -123,8 +146,8 @@ The project uses feature flags so the **same binary** can scale down to constrai
 Defaults for the `nexusfs` binary are `admin` only; the rest are opt-in.
 
 - `admin` (default): embedded admin API + UI
-- `quic`  (off by default): QUIC transport + replication protocol scaffolding
-- `s3`    (off by default): S3-like HTTP API stubs
+- `quic`  (off by default): QUIC transport + peer replication
+- `s3`    (off by default): S3-compatible HTTP API
 - `posix` (off by default): FUSE mount stubs (OS-dependent)
 - `zk`    (off by default): ZK scaffolding (proof traits + placeholder circuits)
 
@@ -206,7 +229,7 @@ Public-facing project material:
 - `crates/crypto`     : identity keys, signing, AEAD encryption envelopes
 - `crates/proto`      : shared types (ops + net messages)
 - `crates/crdt`       : OR-Map + LWW registers + conflict handling
-- `crates/net`        : QUIC transport + handshake (replication state machine not implemented)
+- `crates/net`        : QUIC transport, signed handshake, peer manager, sync sessions
 - `crates/admin`      : embedded admin console backend + static UI assets
 - `crates/energy`     : telemetry + baseline scheduler interface
 - `crates/privacy`    : padding + cover traffic (stubs)

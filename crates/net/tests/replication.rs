@@ -1,0 +1,293 @@
+//! Replication tests.
+//!
+//! Two real `CoreState`s sync over an in-memory duplex, so these exercise the actual
+//! protocol — handshake, trust, batching, verification — without sockets or
+//! certificates. What is *not* covered here is QUIC itself.
+
+use std::sync::Arc;
+
+use nexusfs_core::{now_ms, CoreState, Stores};
+use nexusfs_crypto::Identity;
+use nexusfs_net::session::{pull_from_peer, serve_session, SessionCtx};
+use nexusfs_net::trust::TrustPolicy;
+use nexusfs_proto::DeviceId;
+use nexusfs_storage::mem_store::MemStore;
+
+struct Node {
+    ctx: SessionCtx,
+}
+
+fn node(device: u128, seed: u8, tofu: bool) -> Node {
+    let store = MemStore::new();
+    let core = CoreState::new(
+        Stores {
+            blobs: Arc::new(store.clone()),
+            kv: Arc::new(store),
+        },
+        DeviceId(device),
+    );
+    core.bootstrap_if_needed().unwrap();
+
+    Node {
+        ctx: SessionCtx {
+            core,
+            identity: Identity::from_seed([seed; 32]),
+            device_id: DeviceId(device),
+            trust: TrustPolicy { tofu },
+        },
+    }
+}
+
+impl Node {
+    fn write(&self, path: &str, content: &str) {
+        self.ctx
+            .core
+            .write_file(&self.ctx.identity, path, content.as_bytes(), now_ms())
+            .unwrap();
+    }
+
+    fn mkdir(&self, path: &str) {
+        self.ctx
+            .core
+            .mkdir_p(&self.ctx.identity, path, now_ms())
+            .unwrap();
+    }
+
+    fn state_root(&self) -> [u8; 32] {
+        self.ctx.core.compute_state_root().unwrap()
+    }
+
+    fn read(&self, path: &str) -> String {
+        String::from_utf8(self.ctx.core.read_file_path(path).unwrap()).unwrap()
+    }
+
+    fn listing(&self, path: &str) -> Vec<String> {
+        self.ctx
+            .core
+            .read_dir_path(path)
+            .unwrap()
+            .into_iter()
+            .map(|e| e.name)
+            .collect()
+    }
+}
+
+/// Run one pull of `puller` from `source` over an in-memory connection.
+async fn pull(puller: &Node, source: &Node) -> anyhow::Result<nexusfs_net::session::SyncOutcome> {
+    let (mut client, mut server) = tokio::io::duplex(1 << 20);
+
+    let server_ctx = source.ctx.clone();
+    let responder = tokio::spawn(async move { serve_session(&mut server, &server_ctx).await });
+
+    let outcome = pull_from_peer(&mut client, &puller.ctx).await;
+    // Dropping the client closes the pipe, which ends the responder loop.
+    drop(client);
+    let _ = responder.await;
+    outcome
+}
+
+#[tokio::test]
+async fn pulling_transfers_operations_and_content() {
+    let a = node(1, 1, true);
+    let b = node(2, 2, true);
+
+    a.write("/notes/todo.txt", "buy milk");
+
+    let outcome = pull(&b, &a).await.unwrap();
+
+    assert_eq!(outcome.peer, Some(DeviceId(1)));
+    assert!(outcome.ops_received > 0);
+    assert!(outcome.blobs_received > 0);
+    assert_eq!(outcome.still_pending, 0);
+
+    assert_eq!(b.read("/notes/todo.txt"), "buy milk");
+    assert_eq!(a.state_root(), b.state_root());
+}
+
+#[tokio::test]
+async fn a_second_pull_transfers_nothing() {
+    let a = node(1, 1, true);
+    let b = node(2, 2, true);
+    a.write("/f.txt", "x");
+
+    pull(&b, &a).await.unwrap();
+    let second = pull(&b, &a).await.unwrap();
+
+    assert_eq!(second.ops_received, 0, "nothing new should be offered");
+    assert_eq!(second.blobs_received, 0);
+    assert_eq!(a.state_root(), b.state_root());
+}
+
+#[tokio::test]
+async fn bidirectional_pulls_converge() {
+    // Each node edited while apart; one pull each way should reconcile both.
+    let a = node(1, 1, true);
+    let b = node(2, 2, true);
+
+    a.mkdir("/shared");
+    a.write("/shared/from-a.txt", "written on A");
+    b.mkdir("/shared");
+    b.write("/shared/from-b.txt", "written on B");
+
+    assert_ne!(a.state_root(), b.state_root());
+
+    pull(&b, &a).await.unwrap();
+    pull(&a, &b).await.unwrap();
+
+    assert_eq!(
+        a.state_root(),
+        b.state_root(),
+        "both directions pulled; the nodes must agree"
+    );
+    assert_eq!(a.listing("/"), b.listing("/"));
+    // Concurrent same-name directories both survive, one renamed.
+    assert_eq!(a.listing("/").len(), 2);
+}
+
+#[tokio::test]
+async fn large_content_transfers_across_batches() {
+    let a = node(1, 1, true);
+    let b = node(2, 2, true);
+
+    let payload = "y".repeat(400_000);
+    a.write("/big.bin", &payload);
+
+    pull(&b, &a).await.unwrap();
+
+    assert_eq!(b.read("/big.bin").len(), payload.len());
+    assert_eq!(a.state_root(), b.state_root());
+}
+
+#[tokio::test]
+async fn many_operations_stream_in_multiple_batches() {
+    // More operations than one batch holds, so the Have/OpsBatch loop must repeat.
+    let a = node(1, 1, true);
+    let b = node(2, 2, true);
+
+    a.mkdir("/many");
+    for i in 0..200 {
+        a.write(&format!("/many/f{i}.txt"), &format!("content {i}"));
+    }
+
+    let outcome = pull(&b, &a).await.unwrap();
+
+    assert!(outcome.ops_received >= 400, "got {}", outcome.ops_received);
+    assert_eq!(b.listing("/many").len(), 200);
+    assert_eq!(a.state_root(), b.state_root());
+}
+
+#[tokio::test]
+async fn deletions_replicate() {
+    let a = node(1, 1, true);
+    let b = node(2, 2, true);
+
+    a.write("/gone.txt", "temporary");
+    pull(&b, &a).await.unwrap();
+    assert_eq!(b.listing("/"), vec!["gone.txt"]);
+
+    a.ctx
+        .core
+        .remove_path(&a.ctx.identity, "/gone.txt", now_ms())
+        .unwrap();
+    pull(&b, &a).await.unwrap();
+
+    assert!(
+        b.listing("/").is_empty(),
+        "the unlink should have replicated"
+    );
+    assert_eq!(a.state_root(), b.state_root());
+}
+
+#[tokio::test]
+async fn an_unknown_peer_is_refused_when_tofu_is_off() {
+    let a = node(1, 1, true);
+    // b does not trust on first use and has never seen a.
+    let b = node(2, 2, false);
+
+    a.write("/f.txt", "x");
+    let result = pull(&b, &a).await;
+
+    assert!(result.is_err(), "unknown peer must be refused");
+    assert!(b.listing("/").is_empty(), "no state should have changed");
+}
+
+#[tokio::test]
+async fn a_peer_that_changes_its_key_is_refused() {
+    let a = node(1, 1, true);
+    let b = node(2, 2, true);
+    a.write("/f.txt", "x");
+
+    // First contact pins a's key.
+    pull(&b, &a).await.unwrap();
+
+    // Same device id, different signing key — impersonation or an unannounced
+    // rotation. Either way it must not be accepted silently.
+    let mut imposter = node(1, 99, true);
+    imposter.ctx.core = a.ctx.core.clone();
+    imposter.ctx.device_id = DeviceId(1);
+
+    let result = pull(&b, &imposter).await;
+    assert!(result.is_err(), "a changed key must be refused");
+}
+
+#[tokio::test]
+async fn tampered_operations_are_rejected_without_aborting_the_sync() {
+    let a = node(1, 1, true);
+    let b = node(2, 2, true);
+
+    a.write("/good.txt", "legitimate");
+
+    // Forge an operation signed by nobody and inject it into a's oplog directly,
+    // bypassing a's own apply path.
+    let mut forged = a
+        .ctx
+        .core
+        .make_op(
+            &a.ctx.identity,
+            nexusfs_proto::FsOpKind::Mkdir {
+                parent: 1,
+                name: "evil".into(),
+                mode: 0o40755,
+            },
+            now_ms(),
+        )
+        .unwrap();
+    forged.sig = vec![0u8; 64];
+    a.ctx.core.append_op(&forged).unwrap();
+
+    pull(&b, &a).await.unwrap();
+
+    // The good file arrived; the forged directory did not.
+    assert_eq!(b.read("/good.txt"), "legitimate");
+    assert!(
+        !b.listing("/").contains(&"evil".to_string()),
+        "an operation with an invalid signature must not apply"
+    );
+}
+
+#[tokio::test]
+async fn content_that_does_not_match_its_hash_is_discarded() {
+    let a = node(1, 1, true);
+    let b = node(2, 2, true);
+
+    a.write("/f.txt", "real content");
+
+    // Corrupt the stored chunk so a serves bytes that do not match the hash the
+    // operation references.
+    let entries = a.ctx.core.read_dir_path("/").unwrap();
+    let inode = entries[0].inode_id;
+    let record = a.ctx.core.load_inode(inode).unwrap().unwrap();
+    let node_hash = record.content.value.node_hash.unwrap();
+    if let Some(nexusfs_core::Object::FileNode(f)) = a.ctx.core.get_object(&node_hash).unwrap() {
+        let chunk = f.chunks[0].hash;
+        a.ctx.core.stores.blobs.put(chunk, b"tampered!!!").unwrap();
+    }
+
+    pull(&b, &a).await.unwrap();
+
+    // The write parks rather than publishing content that failed verification.
+    assert!(
+        b.ctx.core.read_file_path("/f.txt").is_err() || b.ctx.core.pending_count().unwrap() > 0,
+        "unverified content must not become readable"
+    );
+}

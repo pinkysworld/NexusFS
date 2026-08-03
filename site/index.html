@@ -56,11 +56,11 @@
             <div class="panel-orbit"></div>
             <div class="status-card">
               <span class="status-label">Current Baseline</span>
-              <strong>Milestones M0–M2: a local filesystem with an S3 API</strong>
+              <strong>Milestones M0–M3: replication over QUIC</strong>
               <p>
-                Files round-trip through a signed operation log applied to CRDT-backed
-                namespace state, reachable over an S3-compatible API as well as the CLI.
-                Networked replication is next.
+                Two nodes converge over QUIC with every operation and chunk verified
+                before it is accepted, reachable through the CLI and an S3-compatible
+                API. Encryption at rest is next.
               </p>
             </div>
             <div class="mini-grid">
@@ -87,7 +87,7 @@
         <section class="stats reveal">
           <div class="stat">
             <span class="stat-label">Milestone</span>
-            <strong>M2 of 8 complete</strong>
+            <strong>M3 of 8 complete</strong>
           </div>
           <div class="stat">
             <span class="stat-label">Hashing</span>
