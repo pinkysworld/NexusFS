@@ -43,25 +43,35 @@ jobs:
       - name: Build with optional features
         run: cargo build -p nexusfs --features "admin,quic,s3"
 
-  # The site ships a prebuilt nexusfs.wasm. Rebuild it here so a core change that
-  # breaks the browser target is caught, and so the committed artefact can be
-  # checked against a fresh build.
+  # The playground runs the core in the browser, so a core change that breaks the
+  # wasm target would silently break the site. Catch it here; the deploy workflow
+  # builds the artefact it actually ships.
   wasm:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust with wasm target
-        run: rustup toolchain install stable --profile minimal --target wasm32-unknown-unknown
+        run: rustup toolchain install stable --profile minimal --component clippy --target wasm32-unknown-unknown
+
+      - name: Clippy (wasm target)
+        run: cargo clippy -p nexusfs-wasm --target wasm32-unknown-unknown
 
       - name: Build wasm
-        run: cargo build -p nexusfs-wasm --target wasm32-unknown-unknown --release
+        run: ./scripts/build_wasm.sh
 
-      - name: Check the committed artefact is current
+      # The whole point of the JSON-over-buffers boundary is that the module needs no
+      # JS glue. If something pulls in wasm-bindgen, imports appear and the page breaks
+      # with a bare "LinkError" that is miserable to diagnose from a deployed site.
+      - name: Assert the module has no JS imports
         run: |
-          built=target/wasm32-unknown-unknown/release/nexusfs_wasm.wasm
-          if ! cmp -s "$built" site/nexusfs.wasm; then
-            echo "site/nexusfs.wasm differs from a fresh build."
-            echo "Run: ./scripts/build_wasm.sh"
-            exit 1
-          fi
+          node -e '
+            const {readFileSync} = require("fs");
+            const m = new WebAssembly.Module(readFileSync("site/nexusfs.wasm"));
+            const imports = WebAssembly.Module.imports(m);
+            if (imports.length) {
+              console.error("module gained JS imports:", imports);
+              process.exit(1);
+            }
+            console.log("no imports — module is self-contained");
+          '

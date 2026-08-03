@@ -118,18 +118,26 @@ Or create a git-ignored `.cargo/config.toml` in the repository root with a
 
 ---
 
-## Rebuilding the playground
+## Building the playground locally
 
-The site serves a prebuilt `site/nexusfs.wasm` so GitHub Pages needs no build step.
-After changing anything the playground exercises:
+`site/nexusfs.wasm` is git-ignored and built by the Pages deploy workflow. To preview
+the playground yourself:
 
 ```bash
 ./scripts/build_wasm.sh
 ```
 
+```bash
+python3 -m http.server 8099 --directory site
+```
+
 No wasm-bindgen or wasm-pack needed — the module exposes a plain JSON-over-buffers
 interface with no JS imports, so `cargo build --target wasm32-unknown-unknown` is the
-whole toolchain. CI rebuilds it and fails if the committed artefact is stale.
+whole toolchain. CI builds it on the wasm target, runs clippy against it, and asserts
+the module still has zero JS imports.
+
+The artefact is not committed because it is not reproducible across machines: the rustc
+version and the build's absolute paths both end up inside the binary.
 
 ---
 

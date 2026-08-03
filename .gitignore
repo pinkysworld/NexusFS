@@ -5,3 +5,7 @@
 
 # Machine-local build settings (contains an absolute path).
 /.cargo/config.toml
+
+# Built by scripts/build_wasm.sh and by the Pages deploy workflow. Not committed:
+# the module is not reproducible across machines, so a checked-in copy would drift.
+/site/nexusfs.wasm

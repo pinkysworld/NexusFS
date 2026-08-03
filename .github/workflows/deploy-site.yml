@@ -6,6 +6,11 @@ on:
       - main
     paths:
       - "site/**"
+      # The playground module is built from the crates, so a core change can alter
+      # what the site serves even when nothing under site/ moved.
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
       - ".github/workflows/deploy-site.yml"
   workflow_dispatch:
 
@@ -27,6 +32,25 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Install Rust with wasm target
+        run: rustup toolchain install stable --profile minimal --target wasm32-unknown-unknown
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-wasm-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-wasm-
+
+      # Built here rather than committed: the artefact is not reproducible across
+      # machines (rustc version and embedded build paths both leak into it), so a
+      # checked-in copy could only ever be approximately current.
+      - name: Build the playground module
+        run: ./scripts/build_wasm.sh
 
       - name: Configure Pages
         uses: actions/configure-pages@v5

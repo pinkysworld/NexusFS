@@ -84,7 +84,8 @@ replication will use.
 storage backend, which the project website loads to run two replicas in one page. It
 exercises the real apply pipeline, so convergence and conflict naming shown there are
 genuine rather than simulated. The module has no JS imports, so it builds with plain
-cargo and needs no wasm-bindgen toolchain.
+cargo and needs no wasm-bindgen toolchain; the Pages workflow builds it on deploy
+rather than serving a committed binary.
 
 Note that the playground's "sync" hands one replica's oplog and blobs to the other
 in-process; it is not the network protocol, which does not exist yet.
