@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NexusFS Playground | Run Two Replicas In Your Browser</title>
+    <meta
+      name="description"
+      content="Run the real NexusFS core in your browser: two replicas, a partition, and deterministic convergence."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-page="playground">
+    <div class="page-shell">
+      <header class="site-header">
+        <a class="brand" href="./index.html">
+          <span class="brand-mark">N</span>
+          <span>NexusFS</span>
+        </a>
+        <nav class="site-nav" aria-label="Primary">
+          <a href="./index.html">Home</a>
+          <a href="./docs.html">Docs</a>
+          <a href="./playground.html">Playground</a>
+          <a href="./architecture.html">Architecture</a>
+          <a href="./status.html">Status</a>
+          <a href="https://github.com/pinkysworld/NexusFS" target="_blank" rel="noreferrer">GitHub</a>
+        </nav>
+      </header>
+
+      <main>
+        <section class="hero hero-compact reveal">
+          <div class="hero-copy">
+            <p class="eyebrow">Playground</p>
+            <h1>Two replicas, one browser tab.</h1>
+            <p class="lede">
+              This is not a simulation. The page loads the NexusFS core compiled to
+              WebAssembly — the same signed operation log, the same CRDT namespace state
+              and the same conflict rules the native binary runs. Only the storage
+              backend differs, because storage is a trait.
+            </p>
+          </div>
+        </section>
+
+        <section class="section reveal">
+          <p id="boot-status" class="verdict">Loading the WebAssembly core…</p>
+
+          <div class="playground-bar">
+            <button id="scenario-offline" class="button button-primary">
+              Scenario: A worked offline
+            </button>
+            <button id="scenario-partition" class="button button-primary">
+              Scenario: both created /shared
+            </button>
+            <span class="playground-spacer"></span>
+            <button id="sync-ab" class="button button-secondary">A → B</button>
+            <button id="sync-ba" class="button button-secondary">B → A</button>
+            <button id="sync-both" class="button button-secondary">Sync both ways</button>
+            <button id="reset" class="button button-secondary">Reset</button>
+          </div>
+
+          <p id="converged" class="verdict">…</p>
+
+          <div class="playground-grid">
+            <!-- Replica A -->
+            <article class="content-panel">
+              <h2>Replica A</h2>
+              <dl class="playground-stats">
+                <div><dt>State root</dt><dd><code id="root-0">…</code></dd></div>
+                <div><dt>Operations</dt><dd id="ops-0">0</dd></div>
+                <div><dt>Pending</dt><dd id="pending-0">0</dd></div>
+                <div><dt>Blobs</dt><dd id="blobs-0">0</dd></div>
+              </dl>
+
+              <div class="tree" id="tree-0"></div>
+
+              <div class="playground-form">
+                <label for="path-0">Path</label>
+                <input id="path-0" value="/docs" spellcheck="false" />
+                <label for="content-0">Content</label>
+                <textarea id="content-0" rows="2" spellcheck="false">hello from A</textarea>
+                <div class="playground-actions">
+                  <button id="mkdir-0" class="button button-secondary">mkdir</button>
+                  <button id="put-0" class="button button-secondary">put</button>
+                  <button id="cat-0" class="button button-secondary">cat</button>
+                  <button id="rm-0" class="button button-secondary">rm</button>
+                </div>
+              </div>
+            </article>
+
+            <!-- Replica B -->
+            <article class="content-panel">
+              <h2>Replica B</h2>
+              <dl class="playground-stats">
+                <div><dt>State root</dt><dd><code id="root-1">…</code></dd></div>
+                <div><dt>Operations</dt><dd id="ops-1">0</dd></div>
+                <div><dt>Pending</dt><dd id="pending-1">0</dd></div>
+                <div><dt>Blobs</dt><dd id="blobs-1">0</dd></div>
+              </dl>
+
+              <div class="tree" id="tree-1"></div>
+
+              <div class="playground-form">
+                <label for="path-1">Path</label>
+                <input id="path-1" value="/docs" spellcheck="false" />
+                <label for="content-1">Content</label>
+                <textarea id="content-1" rows="2" spellcheck="false">hello from B</textarea>
+                <div class="playground-actions">
+                  <button id="mkdir-1" class="button button-secondary">mkdir</button>
+                  <button id="put-1" class="button button-secondary">put</button>
+                  <button id="cat-1" class="button button-secondary">cat</button>
+                  <button id="rm-1" class="button button-secondary">rm</button>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <div class="content-panel" style="margin-top: 24px">
+            <h2>Activity</h2>
+            <div id="log" class="log"></div>
+          </div>
+        </section>
+
+        <section class="section reveal">
+          <div class="content-panel">
+            <h2>What to look for</h2>
+            <ul class="list-block">
+              <li>
+                <strong>The state root, not the head.</strong> The head carries per-device
+                provenance, so two replicas holding identical data still have different
+                heads. The state root is a pure function of the applied operations — it is
+                what convergence actually means here.
+              </li>
+              <li>
+                <strong>Sync moves operations, then content.</strong> Each transfer carries
+                the oplog plus the blobs it references. Blob hashes are verified on arrival
+                before anything is stored.
+              </li>
+              <li>
+                <strong>Conflicts do not lose data.</strong> Create <code>/shared</code> on
+                both replicas while partitioned, then sync. Both links survive; the one with
+                the lower dot keeps the plain name and the other is renamed deterministically,
+                identically on both sides.
+              </li>
+              <li>
+                <strong>Order does not matter.</strong> Sync in either direction, in any
+                order, as many times as you like. Re-applying an operation is a no-op, and
+                operations that arrive before their parent are parked and retried.
+              </li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="section reveal">
+          <div class="callout">
+            <div>
+              <p class="eyebrow">Caveats</p>
+              <h2>This is the local core, not the network stack</h2>
+              <p>
+                Replication here is a button, not a protocol: the page hands one replica's
+                oplog and blobs to the other in-process. The QUIC transport, peer handshake
+                and Have/Want negotiation are still unimplemented — that is milestone M3.
+                Encryption at rest and proof enforcement are not wired in either. State lives
+                in memory and is gone on reload.
+              </p>
+            </div>
+            <div class="callout-actions">
+              <a class="button button-primary" href="./status.html">Current Status</a>
+              <a class="button button-secondary" href="./roadmap.html">Roadmap</a>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <p>The NexusFS core, compiled to WebAssembly and running locally in your browser.</p>
+        <p>© <span id="year"></span> NexusFS</p>
+      </footer>
+    </div>
+    <script src="./app.js"></script>
+    <script src="./playground.js"></script>
+  </body>
+</html>

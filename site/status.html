@@ -23,6 +23,7 @@
         <nav class="site-nav" aria-label="Primary">
           <a href="./index.html">Home</a>
           <a href="./docs.html">Docs</a>
+          <a href="./playground.html">Playground</a>
           <a href="./architecture.html">Architecture</a>
           <a href="./roadmap.html">Roadmap</a>
         </nav>
@@ -53,10 +54,10 @@
               </p>
             </article>
             <article class="feature-card">
-              <h3>In progress</h3>
+              <h3>Try it yourself</h3>
               <p>
-                Milestone M1 is underway with real local-core plumbing, but the full
-                CRDT-backed filesystem apply path is not complete yet.
+                The <a href="./playground.html">playground</a> runs this exact core in
+                your browser: two replicas, a partition, and deterministic convergence.
               </p>
             </article>
             <article class="feature-card">
@@ -69,8 +70,8 @@
             <article class="feature-card">
               <h3>Highest-value backlog</h3>
               <p>
-                Finish the real local state machine, then move into oplog and blob
-                replication between nodes.
+                Oplog and blob replication between nodes over the network — the local
+                apply pipeline is already the single source of truth for state changes.
               </p>
             </article>
           </div>

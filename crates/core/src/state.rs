@@ -171,6 +171,20 @@ impl CoreState {
         Ok(Some(decode(&bytes)?))
     }
 
+    /// Every operation held, in oplog order (ascending device, then counter).
+    ///
+    /// This is the order to replicate in: an operation's causal prerequisites from the
+    /// same device precede it, so a receiver parks far fewer operations than it would
+    /// given an arbitrary order.
+    pub fn all_ops(&self) -> Result<Vec<FsOp>> {
+        self.stores
+            .kv
+            .scan_prefix(CF_OPLOG, OP_PREFIX)?
+            .into_iter()
+            .map(|(_k, v)| decode::<FsOp>(&v))
+            .collect()
+    }
+
     /// Most recent operations by device/counter order, newest first.
     pub fn recent_ops(&self, limit: usize) -> Result<Vec<FsOp>> {
         let mut rows = self.stores.kv.scan_prefix(CF_OPLOG, OP_PREFIX)?;

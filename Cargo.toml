@@ -13,6 +13,7 @@ members = [
   "crates/zk",
   "crates/crdt",
   "crates/proto",
+  "crates/wasm",
 ]
 resolver = "2"
 

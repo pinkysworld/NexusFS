@@ -42,3 +42,26 @@ jobs:
       # non-default combinations have to build too or they rot unnoticed.
       - name: Build with optional features
         run: cargo build -p nexusfs --features "admin,quic,s3"
+
+  # The site ships a prebuilt nexusfs.wasm. Rebuild it here so a core change that
+  # breaks the browser target is caught, and so the committed artefact can be
+  # checked against a fresh build.
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust with wasm target
+        run: rustup toolchain install stable --profile minimal --target wasm32-unknown-unknown
+
+      - name: Build wasm
+        run: cargo build -p nexusfs-wasm --target wasm32-unknown-unknown --release
+
+      - name: Check the committed artefact is current
+        run: |
+          built=target/wasm32-unknown-unknown/release/nexusfs_wasm.wasm
+          if ! cmp -s "$built" site/nexusfs.wasm; then
+            echo "site/nexusfs.wasm differs from a fresh build."
+            echo "Run: ./scripts/build_wasm.sh"
+            exit 1
+          fi

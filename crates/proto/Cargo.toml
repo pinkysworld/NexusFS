@@ -9,5 +9,3 @@ description = "Shared protocol types for NexusFS"
 anyhow.workspace = true
 serde.workspace = true
 postcard.workspace = true
-bytes.workspace = true
-uuid.workspace = true

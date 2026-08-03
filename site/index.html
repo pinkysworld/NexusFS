@@ -26,6 +26,7 @@
         </a>
         <nav class="site-nav" aria-label="Primary">
           <a href="./docs.html">Docs</a>
+          <a href="./playground.html">Playground</a>
           <a href="./architecture.html">Architecture</a>
           <a href="./operations.html">Operations</a>
           <a href="./roadmap.html">Roadmap</a>
@@ -45,7 +46,8 @@
               cannot afford blind trust.
             </p>
             <div class="cta-row">
-              <a class="button button-primary" href="./docs.html">Read The Docs</a>
+              <a class="button button-primary" href="./playground.html">Try It In Your Browser</a>
+              <a class="button button-secondary" href="./docs.html">Read The Docs</a>
               <a class="button button-secondary" href="#quickstart">Quick Start</a>
             </div>
           </div>
@@ -53,10 +55,11 @@
             <div class="panel-orbit"></div>
             <div class="status-card">
               <span class="status-label">Current Baseline</span>
-              <strong>Local core + admin + verified scaffolding</strong>
+              <strong>Milestone M1 complete: a working local filesystem</strong>
               <p>
-                Canonical object hashing, chunked CAS writes, persistent heads, and
-                idempotent oplog application are already wired into the workspace.
+                Files round-trip through a signed operation log applied to CRDT-backed
+                namespace state, with deterministic conflict resolution and state that
+                survives restart. Networked replication is next.
               </p>
             </div>
             <div class="mini-grid">

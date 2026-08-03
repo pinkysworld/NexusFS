@@ -21,6 +21,10 @@ pub trait KvStore: Send + Sync {
     fn scan_prefix(&self, cf: &str, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>>;
 }
 
+/// Always available: it has no dependencies and no filesystem, so it is the one
+/// backend every target can build, including `wasm32-unknown-unknown`.
+pub mod mem_store;
+
 #[cfg(feature = "sled")]
 pub mod sled_store;
 

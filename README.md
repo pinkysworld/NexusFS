@@ -5,11 +5,21 @@
 A Rust workspace building toward a verifiable, offline-first distributed filesystem in a
 single binary.
 
-> **Status**: the **local filesystem core works** — files can be created, written, listed,
-> read back, renamed and removed through a signed operation log applied to CRDT-backed
-> namespace state, and that state survives restart. Replication, encryption at rest, the
-> S3/FUSE facades and ZK proofs are **not implemented yet**; those crates are still
-> scaffolding. See [`documentation/current-status.md`](documentation/current-status.md).
+> **Status — milestone M1 of 8 complete.** The local filesystem works: files can be
+> created, written, listed, read back, renamed and removed through a signed operation
+> log applied to CRDT-backed namespace state, and that state survives restart.
+> Replication, encryption at rest, the S3/FUSE facades, energy-aware scheduling and ZK
+> proofs are **not implemented yet**; those crates are still scaffolding. See
+> [`documentation/current-status.md`](documentation/current-status.md).
+
+## Try it in your browser
+
+**[pinkysworld.github.io/NexusFS/playground.html](https://pinkysworld.github.io/NexusFS/playground.html)**
+
+Two replicas in one tab: partition them, edit both, sync, and watch the state roots
+converge with deterministic conflict naming. It runs the real core compiled to
+WebAssembly — the same operations, CRDT state and conflict rules as the native binary,
+differing only in storage backend. Nothing is installed and nothing leaves the page.
 
 The repository also includes:
 - Message schema + protocol spec (`docs/protocol.md`)
@@ -108,6 +118,21 @@ Or create a git-ignored `.cargo/config.toml` in the repository root with a
 
 ---
 
+## Rebuilding the playground
+
+The site serves a prebuilt `site/nexusfs.wasm` so GitHub Pages needs no build step.
+After changing anything the playground exercises:
+
+```bash
+./scripts/build_wasm.sh
+```
+
+No wasm-bindgen or wasm-pack needed — the module exposes a plain JSON-over-buffers
+interface with no JS imports, so `cargo build --target wasm32-unknown-unknown` is the
+whole toolchain. CI rebuilds it and fails if the committed artefact is stale.
+
+---
+
 ## Where to start coding
 
 Read and follow:
@@ -145,6 +170,7 @@ Public-facing project material:
 - `crates/zk`         : proof traits, transparent proof bundles, ZK placeholders
 - `crates/s3`         : S3-like API surface (stubs)
 - `crates/fs_posix`   : FUSE mount surface (stubs)
+- `crates/wasm`       : browser build of the core, powering the playground
 - `documentation`     : public markdown documentation hub
 - `site`              : static project website and GitHub Pages source
 

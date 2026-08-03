@@ -33,6 +33,8 @@ encrypted at rest, and no external facade (S3, FUSE) is implemented.
 
 - `BlobStore` and `KvStore` traits are present, including blob count/size accounting.
 - The sled backend is implemented and tested for blob put/get/has/delete and KV prefix scans.
+- An in-memory backend is always available, which is what lets the identical core run in
+  the browser.
 
 ### Filesystem Core
 
@@ -75,6 +77,17 @@ encrypted at rest, and no external facade (S3, FUSE) is implemented.
 `nexusfs` supports `daemon`, `status`, `mkdir [-p]`, `put`, `cat`, `ls`, `rm` and `mv`.
 Every mutating verb builds a signed operation and applies it through the same pipeline
 replication will use.
+
+### Browser Playground
+
+`crates/wasm` compiles the core to `wasm32-unknown-unknown` against the in-memory
+storage backend, which the project website loads to run two replicas in one page. It
+exercises the real apply pipeline, so convergence and conflict naming shown there are
+genuine rather than simulated. The module has no JS imports, so it builds with plain
+cargo and needs no wasm-bindgen toolchain.
+
+Note that the playground's "sync" hands one replica's oplog and blobs to the other
+in-process; it is not the network protocol, which does not exist yet.
 
 ### Test Coverage
 

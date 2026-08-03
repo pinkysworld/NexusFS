@@ -1,0 +1,29 @@
+[package]
+name = "nexusfs-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "WebAssembly build of the NexusFS local core, for the browser playground"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+base64.workspace = true
+blake3.workspace = true
+hex.workspace = true
+
+nexusfs-core = { path = "../core" }
+nexusfs-crypto = { path = "../crypto" }
+nexusfs-proto = { path = "../proto" }
+# No sled: the browser has no filesystem, so the in-memory backend is the only one.
+nexusfs-storage = { path = "../storage", default-features = false }
+
+# `getrandom` refuses to build for wasm32-unknown-unknown without a backend. The
+# "js" backend would drag in wasm-bindgen and force a wasm-bindgen-cli post-processing
+# step; "custom" lets us supply our own, so the playground builds with plain cargo.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["custom"] }

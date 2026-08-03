@@ -23,6 +23,17 @@ impl Identity {
         Self { signing }
     }
 
+    /// Build an identity from caller-supplied key material.
+    ///
+    /// Lets an embedder provide entropy from its own source rather than the OS —
+    /// notably the WebAssembly build, which takes a seed from `crypto.getRandomValues`
+    /// and so needs no `getrandom` backend compiled in.
+    pub fn from_seed(seed: [u8; 32]) -> Self {
+        Self {
+            signing: SigningKey::from_bytes(&seed),
+        }
+    }
+
     pub fn load_or_create(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         if path.exists() {
