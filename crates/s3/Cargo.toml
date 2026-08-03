@@ -13,4 +13,15 @@ serde.workspace = true
 serde_json.workspace = true
 axum.workspace = true
 
+hex.workspace = true
+time = { workspace = true, features = ["formatting", "parsing"] }
+
 nexusfs-core = { path = "../core" }
+nexusfs-crypto = { path = "../crypto" }
+
+[dev-dependencies]
+tempfile.workspace = true
+tower.workspace = true
+http-body-util = "0.1"
+nexusfs-storage = { path = "../storage" }
+nexusfs-proto = { path = "../proto" }

@@ -35,12 +35,13 @@
         <section class="hero hero-compact reveal">
           <div class="hero-copy">
             <p class="eyebrow">Current Status</p>
-            <h1>A working local filesystem, not distributed yet.</h1>
+            <h1>A working local filesystem with an S3 API, not distributed yet.</h1>
             <p class="lede">
-              Milestone M1 is complete: files can be created, written, listed, read back,
-              renamed and removed through a signed operation log applied to CRDT-backed
-              namespace state, and that state survives restart. Replication, facades,
-              encryption at rest, and proof enforcement are still in the backlog.
+              Milestones M0 through M2 are complete: files round-trip through a signed
+              operation log applied to CRDT-backed namespace state, that state survives
+              restart, and an S3-compatible API exposes the same state machine over HTTP.
+              Networked replication, encryption at rest, and proof enforcement are still
+              in the backlog.
             </p>
           </div>
         </section>
@@ -65,8 +66,8 @@
             <article class="feature-card">
               <h3>Present as scaffolding</h3>
               <p>
-                QUIC, transparent proofs, S3, POSIX, privacy, energy, and ZK crates
-                all exist, but most are still placeholders or partially wired layers.
+                QUIC, transparent proofs, POSIX, privacy, energy, and ZK crates all
+                exist, but remain placeholders or partially wired layers.
               </p>
             </article>
             <article class="feature-card">
@@ -92,6 +93,7 @@
               <li>Pending-operation queue for causally early operations</li>
               <li>Snapshots committing to both directory structure and file content</li>
               <li>Admin API and browsable console for state, storage, and oplog</li>
+              <li>S3-compatible objects, buckets, and ListObjectsV2</li>
             </ul>
           </div>
           <div class="content-panel">
@@ -100,7 +102,7 @@
               <li>Real peer replication and blob transfer</li>
               <li>Integrated encryption-at-rest write path</li>
               <li>Automatic proof attachment and verification enforcement</li>
-              <li>Functional S3 and POSIX facades</li>
+              <li>POSIX/FUSE facade</li>
               <li>Energy-aware scheduling wired into background jobs</li>
             </ul>
           </div>

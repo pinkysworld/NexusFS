@@ -2,11 +2,11 @@
 
 use std::sync::Arc;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 
-use nexusfs_core::{ApplyOutcome, CoreState, EntryType, Stores};
+use nexusfs_core::{CoreState, Stores};
 use nexusfs_crypto::Identity;
-use nexusfs_proto::{FsOp, FsOpKind};
+use nexusfs_proto::FsOp;
 use nexusfs_storage::mem_store::MemStore;
 
 /// A content-addressed blob as it moves between nodes: `(hash, bytes)`.
@@ -43,14 +43,6 @@ impl Replica {
         })
     }
 
-    fn apply(&self, kind: FsOpKind, now: u64) -> Result<()> {
-        let op = self.core.make_op(&self.identity, kind, now)?;
-        match self.core.apply_op(&op)? {
-            ApplyOutcome::Applied | ApplyOutcome::AlreadyApplied => Ok(()),
-            ApplyOutcome::Pending(reason) => bail!("cannot apply: {reason}"),
-        }
-    }
-
     pub fn mkdir(&self, path: &str, now: u64) -> Result<()> {
         let Some((parent, name)) = self.core.resolve_parent(path)? else {
             bail!("parent directory of {path} does not exist");
@@ -58,81 +50,21 @@ impl Replica {
         if self.core.lookup(parent, &name)?.is_some() {
             bail!("{path} already exists");
         }
-        self.apply(
-            FsOpKind::Mkdir {
-                parent,
-                name,
-                mode: 0o40755,
-            },
-            now,
-        )
+        self.core.mkdir_p(&self.identity, path, now)?;
+        Ok(())
     }
 
     pub fn put(&self, path: &str, content: &[u8], now: u64) -> Result<()> {
-        let Some((parent, name)) = self.core.resolve_parent(path)? else {
-            bail!("parent directory of {path} does not exist");
-        };
-
-        let inode = match self.core.lookup(parent, &name)? {
-            Some(entry) if entry.entry_type == EntryType::File => entry.inode_id,
-            Some(_) => bail!("{path} exists and is not a file"),
-            None => {
-                self.apply(
-                    FsOpKind::CreateFile {
-                        parent,
-                        name: name.clone(),
-                        mode: 0o100644,
-                    },
-                    now,
-                )?;
-                self.core
-                    .lookup(parent, &name)?
-                    .context("file missing right after creation")?
-                    .inode_id
-            }
-        };
-
-        let chunks = self.core.store_chunks(content)?;
-        self.apply(
-            FsOpKind::Write {
-                inode,
-                offset: 0,
-                chunks,
-                new_size: content.len() as u64,
-            },
-            now,
-        )
+        self.core.write_file(&self.identity, path, content, now)?;
+        Ok(())
     }
 
     pub fn rm(&self, path: &str, now: u64) -> Result<()> {
-        let Some((parent, name)) = self.core.resolve_parent(path)? else {
-            bail!("no such path: {path}");
-        };
-        if self.core.lookup(parent, &name)?.is_none() {
-            bail!("no such path: {path}");
-        }
-        self.apply(FsOpKind::Unlink { parent, name }, now)
+        self.core.remove_path(&self.identity, path, now)
     }
 
     pub fn mv(&self, from: &str, to: &str, now: u64) -> Result<()> {
-        let Some((old_parent, old_name)) = self.core.resolve_parent(from)? else {
-            bail!("no such path: {from}");
-        };
-        if self.core.lookup(old_parent, &old_name)?.is_none() {
-            bail!("no such path: {from}");
-        }
-        let Some((new_parent, new_name)) = self.core.resolve_parent(to)? else {
-            bail!("destination directory of {to} does not exist");
-        };
-        self.apply(
-            FsOpKind::Rename {
-                old_parent,
-                old_name,
-                new_parent,
-                new_name,
-            },
-            now,
-        )
+        self.core.rename_path(&self.identity, from, to, now)
     }
 
     /// Everything this node holds: its oplog and its blobs.

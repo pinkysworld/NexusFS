@@ -5,11 +5,12 @@
 A Rust workspace building toward a verifiable, offline-first distributed filesystem in a
 single binary.
 
-> **Status — milestone M1 of 8 complete.** The local filesystem works: files can be
+> **Status — milestones M0–M2 of 8 complete.** The local filesystem works: files can be
 > created, written, listed, read back, renamed and removed through a signed operation
-> log applied to CRDT-backed namespace state, and that state survives restart.
-> Replication, encryption at rest, the S3/FUSE facades, energy-aware scheduling and ZK
-> proofs are **not implemented yet**; those crates are still scaffolding. See
+> log applied to CRDT-backed namespace state, and that state survives restart. An
+> S3-compatible facade exposes the same state machine over HTTP. Networked replication,
+> encryption at rest, the POSIX/FUSE facade, energy-aware scheduling and ZK proofs are
+> **not implemented yet**. See
 > [`documentation/current-status.md`](documentation/current-status.md).
 
 ## Try it in your browser
@@ -79,6 +80,39 @@ cargo run -p nexusfs -- daemon --config ./nexusfs.toml
 
 Note that the embedded database takes an exclusive lock, so `status` cannot run while
 the daemon holds the store — query the running daemon through the admin API instead.
+
+---
+
+## S3-compatible API
+
+Set `s3.enabled = true` in the config and run the daemon with the `s3` feature. Objects
+written over HTTP are ordinary files: the CLI can `cat` them and they appear in the
+oplog as signed operations.
+
+```bash
+cargo run -p nexusfs --features s3 -- daemon --config ./nexusfs.toml
+```
+
+```bash
+curl -X PUT --data "hello" http://127.0.0.1:9000/reports/2024/q1.txt
+```
+
+```bash
+curl http://127.0.0.1:9000/reports/2024/q1.txt
+```
+
+```bash
+curl "http://127.0.0.1:9000/reports?delimiter=/"
+```
+
+Supported: object PUT/GET/HEAD/DELETE, bucket create and list, ListObjectsV2 with
+prefix, delimiter and pagination. A bucket is a top-level directory; the object key is
+the path beneath it.
+
+Not supported, by design in v0: SigV4 signing, multipart upload, versioning, ACLs and
+lifecycle rules. Authentication is an optional shared secret (`s3.token`, sent as
+`x-nexusfs-token`), so keep the facade on loopback unless you set one. ETags are BLAKE3
+rather than MD5.
 
 ---
 

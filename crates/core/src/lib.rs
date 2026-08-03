@@ -7,6 +7,7 @@ pub mod hash;
 pub mod inode;
 pub mod namespace;
 pub mod object;
+pub mod ops;
 pub mod snapshot;
 pub mod state;
 
@@ -17,5 +18,6 @@ pub use hash::*;
 pub use inode::*;
 pub use namespace::*;
 pub use object::*;
+pub use ops::*;
 pub use snapshot::*;
 pub use state::*;

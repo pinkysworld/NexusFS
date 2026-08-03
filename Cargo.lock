@@ -1361,10 +1361,18 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "hex",
+ "http-body-util",
  "nexusfs-core",
+ "nexusfs-crypto",
+ "nexusfs-proto",
+ "nexusfs-storage",
  "serde",
  "serde_json",
+ "tempfile",
+ "time",
  "tokio",
+ "tower",
  "tracing",
 ]
 

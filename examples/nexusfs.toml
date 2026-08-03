@@ -17,6 +17,9 @@ token = ""
 [s3]
 enabled = false
 bind = "127.0.0.1:9000"
+# Required in the x-nexusfs-token header when set. Empty means no authentication,
+# so leave the facade on loopback in that case.
+token = ""
 
 [posix]
 enabled = false

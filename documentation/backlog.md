@@ -36,12 +36,12 @@ and admin observability — landed with milestone M1. See `./current-status.md`.
 - Call `retry_pending` when a blob transfer completes, so writes parked on unfetched
   chunks apply as soon as their content lands.
 
-### First Facade
+### Second Facade
 
-- Choose the first external surface:
-  - S3-like API
-  - POSIX/FUSE
-- Route the facade through the same local mutation semantics used by the daemon and replication layer.
+- The S3-like API is implemented and routed through the same mutation semantics as the
+  CLI. POSIX/FUSE remains unimplemented.
+- Add SigV4 request signing, or document loopback-only deployment as the supported model.
+- Add multipart upload for objects too large to buffer in one request.
 
 ## Later
 
@@ -108,11 +108,10 @@ The most effective execution order right now is:
 
 1. Bring up oplog replication between two nodes.
 2. Add blob transfer and verified remote apply.
-3. Implement the first user-facing facade.
-4. Integrate encryption and transparent proofs.
-5. Add energy-aware scheduling.
-6. Harden operations and maintenance tooling.
-7. Start ZK-specific work.
+3. Integrate encryption and transparent proofs.
+4. Add energy-aware scheduling.
+5. Harden operations and maintenance tooling.
+6. Start ZK-specific work.
 
 ## Definition Of “Ready To Leave Backlog”
 

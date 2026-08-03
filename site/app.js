@@ -16,8 +16,8 @@ const milestoneData = [
   {
     label: "M2",
     title: "External facade",
-    status: "todo",
-    body: "A practical first interface, either POSIX/FUSE or an S3-like API surface, routed through the same operation pipeline."
+    status: "done",
+    body: "An S3-compatible API — objects, buckets and ListObjectsV2 — routed through the same signed-operation pipeline the CLI uses. POSIX/FUSE remains unimplemented."
   },
   {
     label: "M3",

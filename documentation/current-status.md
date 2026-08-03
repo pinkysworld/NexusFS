@@ -78,6 +78,24 @@ encrypted at rest, and no external facade (S3, FUSE) is implemented.
 Every mutating verb builds a signed operation and applies it through the same pipeline
 replication will use.
 
+### S3-Compatible Facade
+
+`crates/s3` implements object PUT/GET/HEAD/DELETE, bucket create and list, and
+ListObjectsV2 with prefix, delimiter and continuation-token pagination. A bucket is a
+top-level directory and an object key is the path beneath it, so S3's flat keyspace
+maps onto the real tree without a separate index.
+
+Writes go through the same `write_file` path the CLI uses, which means an object
+written over HTTP is an ordinary file: the CLI can `cat` it, the admin API lists it,
+and the oplog shows the signed `CreateFile`/`Write` operations that produced it. The
+facade has no way to reach past the operation log.
+
+Deliberately not implemented: SigV4 request signing, multipart upload, versioning,
+ACLs, CORS and lifecycle rules. Authentication is an optional shared secret in
+`x-nexusfs-token`, so the facade belongs on loopback or another trusted interface.
+ETags are BLAKE3 rather than MD5, which clients that recompute them to verify uploads
+will notice.
+
 ### Browser Playground
 
 `crates/wasm` compiles the core to `wasm32-unknown-unknown` against the in-memory
@@ -144,7 +162,8 @@ subtree-cycle refusal, and restart persistence.
 
 - M0 is complete.
 - M1 is complete.
-- M2 and beyond are backlog, except for crate scaffolding and interface placeholders.
+- M2 is complete via the S3 facade; the POSIX/FUSE alternative remains unimplemented.
+- M3 and beyond are backlog, except for crate scaffolding and interface placeholders.
 
 ## Recommended Next Step
 

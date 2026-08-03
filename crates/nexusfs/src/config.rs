@@ -49,6 +49,11 @@ pub struct Admin {
 pub struct S3 {
     pub enabled: bool,
     pub bind: String,
+    /// Shared secret required in `x-nexusfs-token`. Empty disables the check.
+    ///
+    /// Defaulted so existing configs keep parsing; the daemon warns when it is unset.
+    #[serde(default)]
+    pub token: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

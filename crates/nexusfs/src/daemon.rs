@@ -51,7 +51,7 @@ pub async fn run_status(config_path: PathBuf) -> Result<()> {
 
 pub async fn run_daemon(config_path: PathBuf) -> Result<()> {
     let cfg = Config::load(&config_path)?;
-    let (core, _identity, admin_token) = open_core(&cfg)?;
+    let (core, identity, admin_token) = open_core(&cfg)?;
 
     // Bootstrap local repo if empty.
     core.bootstrap_if_needed()?;
@@ -81,13 +81,27 @@ pub async fn run_daemon(config_path: PathBuf) -> Result<()> {
         let addr = cfg.s3_addr()?;
         let st = nexusfs_s3::S3State {
             core: Arc::new(core.clone()),
+            // Object writes are signed by this node, exactly like CLI writes.
+            identity: Arc::new(identity.clone()),
+            token: cfg.s3.token.clone(),
         };
+        if st.token.is_empty() {
+            tracing::warn!(
+                "s3 facade has no token configured; anyone who can reach {addr} can read \
+                 and write objects"
+            );
+        }
         tokio::spawn(async move {
             if let Err(e) = nexusfs_s3::serve(addr, st).await {
                 eprintln!("s3 server error: {e:?}");
             }
         });
     }
+
+    // The device identity currently only signs operations for the S3 facade; without
+    // that feature the daemon merely holds it open for the replication work to come.
+    #[cfg(not(feature = "s3"))]
+    let _ = &identity;
 
     // TODO(feature=quic): start replication manager, peer connections, etc.
 
