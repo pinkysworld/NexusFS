@@ -14,7 +14,7 @@ single binary.
 
 ## Try it in your browser
 
-**[pinkysworld.github.io/NexusFS/playground.html](https://pinkysworld.github.io/NexusFS/playground.html)**
+**[minh.systems/NexusFS/site/playground.html](https://minh.systems/NexusFS/site/playground.html)**
 
 Two replicas in one tab: partition them, edit both, sync, and watch the state roots
 converge with deterministic conflict naming. It runs the real core compiled to

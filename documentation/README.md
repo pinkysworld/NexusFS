@@ -31,7 +31,7 @@ anything here.
 
 ## Try It Without Installing Anything
 
-The [playground](https://pinkysworld.github.io/NexusFS/playground.html) runs the real
+The [playground](https://minh.systems/NexusFS/site/playground.html) runs the real
 core compiled to WebAssembly — two replicas in one browser tab, with a partition and
 deterministic convergence. It is the same Rust code the native binary runs; only the
 storage backend differs.
