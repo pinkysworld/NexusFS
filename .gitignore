@@ -5,3 +5,8 @@
 
 # Machine-local build settings (contains an absolute path).
 /.cargo/config.toml
+
+# Built by scripts/build_wasm.sh and by the Pages deploy workflow, which is what
+# actually ships. Not committed: the output is not byte-reproducible, so a checked-in
+# copy would show as modified after every local build.
+/site/nexusfs.wasm

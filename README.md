@@ -14,7 +14,7 @@ single binary.
 
 ## Try it in your browser
 
-**[minh.systems/NexusFS/site/playground.html](https://minh.systems/NexusFS/site/playground.html)**
+**[minh.systems/NexusFS/playground.html](https://minh.systems/NexusFS/playground.html)**
 
 Two replicas in one tab: partition them, edit both, sync, and watch the state roots
 converge with deterministic conflict naming. It runs the real core compiled to
@@ -121,7 +121,8 @@ Or create a git-ignored `.cargo/config.toml` in the repository root with a
 ## Building the playground locally
 
 `site/nexusfs.wasm` is git-ignored and built by the Pages deploy workflow. To preview
-the playground yourself:
+the playground yourself, build it and serve `site/` over HTTP — a `file://` page cannot
+fetch the module:
 
 ```bash
 ./scripts/build_wasm.sh

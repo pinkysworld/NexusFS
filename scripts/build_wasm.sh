@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 # Build the browser playground module into site/nexusfs.wasm.
 #
-# The artefact IS committed, because GitHub Pages for this repo serves the branch
-# contents directly rather than a workflow artefact. Run this and commit the result
-# after changing anything the playground exercises.
+# The artefact is git-ignored: the Pages deploy workflow builds it, so the copy that
+# ships is always current. Committing it would also mean permanently dirty diffs,
+# since the output is not byte-reproducible — the rustc version and build paths leak
+# into it.
 #
-# Note that the output is not byte-reproducible across machines — the rustc version
-# leaks into it — so CI cannot meaningfully diff it against a fresh build. CI instead
-# checks that the crate builds and lints on the wasm target and that the module still
-# has no JS imports.
+# Run this to preview the playground locally, then serve site/ over HTTP (a file://
+# page cannot fetch the module).
 #
 # No wasm-bindgen or wasm-pack required: the module has no JS imports by design.
 set -euo pipefail
