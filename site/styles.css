@@ -647,3 +647,11 @@ img {
 .track-card[data-status="done"] {
   border-color: rgba(124, 224, 195, 0.24);
 }
+
+/* Active page in the primary nav. Driven by aria-current so the visual state and
+   the accessibility state cannot drift apart. */
+.site-nav a[aria-current="page"] {
+  color: var(--text);
+  border-color: rgba(124, 224, 195, 0.45);
+  background: rgba(124, 224, 195, 0.1);
+}
