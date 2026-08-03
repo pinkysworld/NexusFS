@@ -1,0 +1,588 @@
+/* Playground-specific styles. Loaded only by playground.html; shared design tokens
+   (colours, --mono, panels, buttons) come from styles.css. */
+
+.page-intro {
+  padding: 3.2rem 0 1.4rem;
+  max-width: 62ch;
+}
+
+.page-intro h1 {
+  margin: 0;
+  font-size: clamp(1.9rem, 3.2vw, 2.5rem);
+  font-weight: 600;
+  line-height: 1.16;
+  letter-spacing: -0.021em;
+}
+
+.page-intro .lede {
+  margin-top: 1rem;
+}
+
+.panel-title {
+  margin: 0 0 0.9rem;
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+}
+
+.panel-copy {
+  margin: 0 0 0.9rem;
+  color: var(--muted);
+  line-height: 1.75;
+  max-width: 62ch;
+}
+
+.split-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
+  gap: 2rem;
+  align-items: start;
+}
+
+.fact-list {
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  overflow: hidden;
+}
+
+.fact-list > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.72rem 0.95rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.fact-list > div:last-child {
+  border-bottom: none;
+}
+
+.fact-list dt {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.fact-list dd {
+  margin: 0;
+  font-size: 0.86rem;
+  text-align: right;
+}
+
+/* --- how to use ----------------------------------------------------------- */
+
+.steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+  display: grid;
+  gap: 0.6rem;
+  max-width: 78ch;
+}
+
+.steps li {
+  counter-increment: step;
+  position: relative;
+  padding: 0.85rem 1rem 0.85rem 3rem;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: rgba(6, 19, 31, 0.4);
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.steps li::before {
+  content: counter(step);
+  position: absolute;
+  left: 0.95rem;
+  top: 0.85rem;
+  width: 1.5rem;
+  height: 1.5rem;
+  display: grid;
+  place-items: center;
+  border-radius: 0.45rem;
+  background: rgba(124, 224, 195, 0.12);
+  border: 1px solid rgba(124, 224, 195, 0.28);
+  color: var(--sea);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.steps strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* --- toolbar -------------------------------------------------------------- */
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.4rem;
+  align-items: center;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  background: rgba(6, 19, 31, 0.5);
+  margin-bottom: 1rem;
+}
+
+.toolbar-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.toolbar-end {
+  margin-left: auto;
+}
+
+.toolbar-label {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-right: 0.2rem;
+}
+
+.btn {
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 0.45rem 0.85rem;
+  border-radius: 0.55rem;
+  border: 1px solid var(--line);
+  background: rgba(124, 224, 195, 0.07);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.btn:hover,
+.btn:focus-visible {
+  background: rgba(124, 224, 195, 0.14);
+  border-color: rgba(124, 224, 195, 0.4);
+}
+
+.btn-quiet {
+  background: transparent;
+  color: var(--muted);
+}
+
+.btn-quiet:hover {
+  color: var(--text);
+}
+
+.btn-accent {
+  background: rgba(124, 224, 195, 0.16);
+  border-color: rgba(124, 224, 195, 0.42);
+  color: var(--sea);
+  font-weight: 600;
+}
+
+.btn-sm {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  padding: 0.35rem 0.65rem;
+}
+
+/* --- verdict + hint ------------------------------------------------------- */
+
+/* `display: flex` below would otherwise beat the hidden attribute's `display: none`,
+   leaving the boot banner on screen after a successful load. */
+[hidden] {
+  display: none !important;
+}
+
+.verdict {
+  margin: 0 0 1rem;
+  padding: 0.7rem 0.95rem;
+  border-radius: 0.7rem;
+  border: 1px solid var(--line);
+  font-size: 0.88rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.verdict::before {
+  content: "";
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  flex: none;
+  background: var(--muted);
+}
+
+.verdict-ok {
+  border-color: rgba(124, 224, 195, 0.35);
+  background: rgba(124, 224, 195, 0.07);
+  color: var(--sea);
+}
+
+.verdict-ok::before {
+  background: var(--sea);
+  box-shadow: 0 0 0 3px rgba(124, 224, 195, 0.18);
+}
+
+.verdict-diverged {
+  border-color: rgba(255, 188, 120, 0.35);
+  background: rgba(255, 188, 120, 0.06);
+  color: var(--sun);
+}
+
+.verdict-diverged::before {
+  background: var(--sun);
+  box-shadow: 0 0 0 3px rgba(255, 188, 120, 0.16);
+}
+
+.verdict-error {
+  border-color: rgba(255, 141, 124, 0.4);
+  background: rgba(255, 141, 124, 0.08);
+  color: var(--danger);
+}
+
+.verdict-error::before {
+  background: var(--danger);
+}
+
+.hint {
+  margin: -0.4rem 0 1rem;
+  padding: 0.6rem 0.9rem;
+  border-left: 2px solid rgba(124, 224, 195, 0.4);
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.65;
+}
+
+/* --- replicas ------------------------------------------------------------- */
+
+.replica-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+  gap: 1rem;
+}
+
+.replica {
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: rgba(6, 19, 31, 0.5);
+  padding: 1.1rem;
+}
+
+.replica-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.9rem;
+}
+
+.replica-head h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.replica-device {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.root-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.7rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.55rem;
+  border: 1px solid var(--line);
+  background: rgba(4, 15, 25, 0.55);
+  margin-bottom: 0.7rem;
+}
+
+.root-label {
+  color: var(--muted);
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  flex: none;
+}
+
+.root-value {
+  font-size: 0.78rem;
+  color: var(--sea);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.replica[data-diverged="true"] .root-value {
+  color: var(--sun);
+}
+
+.metrics {
+  margin: 0 0 0.9rem;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.metrics > div {
+  padding: 0.5rem 0.6rem;
+  border-radius: 0.55rem;
+  border: 1px solid var(--line);
+  background: rgba(4, 15, 25, 0.4);
+}
+
+.metrics dt {
+  color: var(--muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.metrics dd {
+  margin: 0.2rem 0 0;
+  font-family: var(--mono);
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- tree ----------------------------------------------------------------- */
+
+.tree {
+  min-height: 7.5rem;
+  max-height: 15rem;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  padding: 0.6rem;
+  background: rgba(4, 15, 25, 0.55);
+  font-family: var(--mono);
+  font-size: 0.8rem;
+}
+
+.tree-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.14rem 0.2rem;
+  border-radius: 0.3rem;
+}
+
+.tree-dir {
+  color: var(--sea);
+}
+
+.tree-file {
+  color: var(--text);
+}
+
+.tree-size {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.72rem;
+  flex: none;
+}
+
+.tree-tag {
+  color: var(--sun);
+  border: 1px solid rgba(255, 188, 120, 0.35);
+  border-radius: 0.3rem;
+  padding: 0 0.35rem;
+  font-size: 0.62rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  flex: none;
+}
+
+.tree-empty {
+  color: var(--muted);
+  font-style: italic;
+  padding: 0.2rem;
+}
+
+/* --- composer ------------------------------------------------------------- */
+
+.composer {
+  margin-top: 0.9rem;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.28rem;
+}
+
+.field label {
+  color: var(--muted);
+  font-size: 0.74rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.field input,
+.field textarea {
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--line);
+  background: rgba(4, 15, 25, 0.6);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  resize: vertical;
+}
+
+.field input:focus-visible,
+.field textarea:focus-visible {
+  outline: 2px solid var(--sea-deep);
+  outline-offset: 1px;
+}
+
+.composer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+/* --- activity log --------------------------------------------------------- */
+
+.activity {
+  margin-top: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: rgba(6, 19, 31, 0.5);
+  padding: 1.1rem;
+}
+
+.activity-title {
+  margin: 0 0 0.7rem;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.log {
+  max-height: 13rem;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  display: grid;
+  gap: 0.1rem;
+}
+
+.log-line {
+  display: flex;
+  gap: 0.7rem;
+  padding: 0.24rem 0.4rem;
+  border-radius: 0.35rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.log-time {
+  color: rgba(167, 192, 197, 0.5);
+  flex: none;
+}
+
+.log-empty {
+  color: rgba(167, 192, 197, 0.5);
+  font-style: italic;
+  padding: 0.24rem 0.4rem;
+}
+
+.log-ok {
+  color: var(--sea);
+}
+
+.log-sync {
+  color: var(--text);
+  background: rgba(124, 224, 195, 0.07);
+}
+
+.log-warn {
+  color: var(--sun);
+}
+
+.log-error {
+  color: var(--danger);
+  background: rgba(255, 141, 124, 0.07);
+}
+
+/* --- definitions and notes ------------------------------------------------ */
+
+.define-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1rem;
+}
+
+.define {
+  padding: 1.05rem;
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  background: rgba(6, 19, 31, 0.42);
+}
+
+.define h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  font-family: var(--mono);
+  color: var(--sea);
+}
+
+.define p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.72;
+}
+
+.note-stack {
+  display: grid;
+  gap: 0.8rem;
+  max-width: 80ch;
+}
+
+.note {
+  padding: 1.05rem 1.15rem;
+  border: 1px solid var(--line);
+  border-left: 2px solid rgba(124, 224, 195, 0.45);
+  border-radius: 0.3rem 0.9rem 0.9rem 0.3rem;
+  background: rgba(6, 19, 31, 0.42);
+}
+
+.note h3 {
+  margin: 0 0 0.45rem;
+  font-size: 0.98rem;
+  font-weight: 600;
+}
+
+.note p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.75;
+}
+
+@media (max-width: 860px) {
+  .split-panel {
+    grid-template-columns: 1fr;
+    gap: 1.2rem;
+  }
+
+  .toolbar-end {
+    margin-left: 0;
+  }
+}

@@ -1,25 +1,27 @@
 // Browser driver for the NexusFS WebAssembly core.
 //
-// The module is plain wasm with no imports — see crates/wasm. Everything below is
+// The module is plain wasm with no imports — see crates/wasm. Everything here is
 // buffer marshalling plus UI; all filesystem behaviour happens inside the same Rust
 // code the native binary runs.
 
-const PLAYGROUND = (() => {
+const CORE = (() => {
   let wasm = null;
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
 
   async function boot() {
     const response = await fetch("./nexusfs.wasm");
-    if (!response.ok) throw new Error(`could not load nexusfs.wasm (HTTP ${response.status})`);
+    if (!response.ok) {
+      throw new Error(`could not load nexusfs.wasm (HTTP ${response.status})`);
+    }
 
     let instance;
-    if (WebAssembly.instantiateStreaming && response.headers.get("content-type")?.includes("wasm")) {
+    const type = response.headers.get("content-type") || "";
+    if (WebAssembly.instantiateStreaming && type.includes("wasm")) {
       ({ instance } = await WebAssembly.instantiateStreaming(response, {}));
     } else {
       // Some static hosts serve .wasm with the wrong content type; fall back.
-      const bytes = await response.arrayBuffer();
-      ({ instance } = await WebAssembly.instantiate(bytes, {}));
+      ({ instance } = await WebAssembly.instantiate(await response.arrayBuffer(), {}));
     }
     wasm = instance.exports;
 
@@ -33,14 +35,14 @@ const PLAYGROUND = (() => {
   }
 
   function call(request) {
-    if (!wasm) throw new Error("wasm not loaded");
+    if (!wasm) throw new Error("core not loaded");
     const bytes = encoder.encode(JSON.stringify(request));
     const ptr = wasm.nx_alloc(bytes.length);
     new Uint8Array(wasm.memory.buffer, ptr, bytes.length).set(bytes);
 
     const len = wasm.nx_dispatch(ptr, bytes.length);
-    // Re-read the buffer each time: allocation inside dispatch may have grown memory
-    // and detached any view taken earlier.
+    // Re-read the buffer: allocation inside dispatch may have grown wasm memory and
+    // detached any view taken before the call.
     const out = new Uint8Array(wasm.memory.buffer, wasm.nx_response_ptr(), len);
     const parsed = JSON.parse(decoder.decode(out));
     if (!parsed.ok) throw new Error(parsed.error);
@@ -51,26 +53,51 @@ const PLAYGROUND = (() => {
 })();
 
 const NODES = [
-  { index: 0, name: "Replica A" },
-  { index: 1, name: "Replica B" },
+  { index: 0, label: "A" },
+  { index: 1, label: "B" },
 ];
 
-const state = { linked: true };
+const el = (id) => document.getElementById(id);
+const now = () => Date.now();
 
-function now() {
-  return Date.now();
-}
+// --- logging ---------------------------------------------------------------
 
 function log(message, kind = "info") {
-  const el = document.getElementById("log");
+  const box = el("log");
+  box.querySelector(".log-empty")?.remove();
+
   const line = document.createElement("div");
   line.className = `log-line log-${kind}`;
-  const time = new Date().toLocaleTimeString();
-  line.textContent = `${time}  ${message}`;
-  el.prepend(line);
-  while (el.childElementCount > 60) el.lastElementChild.remove();
+
+  const time = document.createElement("span");
+  time.className = "log-time";
+  time.textContent = new Date().toLocaleTimeString([], { hour12: false });
+  line.append(time, document.createTextNode(message));
+
+  box.prepend(line);
+  while (box.childElementCount > 80) box.lastElementChild.remove();
 }
 
+function clearLog() {
+  const box = el("log");
+  box.textContent = "";
+  const empty = document.createElement("div");
+  empty.className = "log-empty";
+  empty.textContent = "No activity yet.";
+  box.appendChild(empty);
+}
+
+function hint(text) {
+  const node = el("scenario-hint");
+  if (!text) {
+    node.hidden = true;
+    return;
+  }
+  node.textContent = text;
+  node.hidden = false;
+}
+
+/** Run an action, surfacing failures in the log rather than the console. */
 function guard(fn) {
   try {
     fn();
@@ -80,170 +107,218 @@ function guard(fn) {
   render();
 }
 
+// --- rendering -------------------------------------------------------------
+
 function formatBytes(n) {
   if (n < 1024) return `${n} B`;
   return `${(n / 1024).toFixed(1)} KiB`;
 }
 
+function renderTree(container, entries) {
+  container.textContent = "";
+
+  if (entries.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "tree-empty";
+    empty.textContent = "empty";
+    container.appendChild(empty);
+    return;
+  }
+
+  for (const entry of entries) {
+    const row = document.createElement("div");
+    row.className = "tree-row";
+    row.style.paddingLeft = `${0.2 + entry.depth * 0.9}rem`;
+
+    const name = document.createElement("span");
+    name.className = entry.kind === "dir" ? "tree-dir" : "tree-file";
+    name.textContent = entry.kind === "dir" ? `${entry.name}/` : entry.name;
+    row.appendChild(name);
+
+    if (entry.name.includes("~conflict-")) {
+      const tag = document.createElement("span");
+      tag.className = "tree-tag";
+      tag.textContent = "renamed";
+      row.appendChild(tag);
+    }
+
+    if (entry.kind === "file") {
+      const size = document.createElement("span");
+      size.className = "tree-size";
+      size.textContent = formatBytes(entry.size);
+      row.appendChild(size);
+    }
+
+    container.appendChild(row);
+  }
+}
+
 function render() {
   const roots = [];
+  const panels = document.querySelectorAll(".replica");
 
   for (const node of NODES) {
-    const st = PLAYGROUND.call({ op: "state", replica: node.index });
-    roots.push(st.state_root);
+    const i = node.index;
+    const state = CORE.call({ op: "state", replica: i });
+    roots.push(state.state_root);
 
-    document.getElementById(`root-${node.index}`).textContent = st.state_root.slice(0, 24) + "…";
-    document.getElementById(`ops-${node.index}`).textContent = st.ops;
-    document.getElementById(`pending-${node.index}`).textContent = st.pending;
-    document.getElementById(`blobs-${node.index}`).textContent =
-      `${st.blob_count} (${formatBytes(st.blob_bytes)})`;
+    el(`device-${i}`).textContent = `device ${state.device_id}`;
+    el(`root-${i}`).textContent = state.state_root.slice(0, 32);
+    el(`root-${i}`).title = state.state_root;
+    el(`ops-${i}`).textContent = state.ops;
+    el(`pending-${i}`).textContent = state.pending;
+    el(`blobs-${i}`).textContent = state.blob_count;
 
-    const tree = PLAYGROUND.call({ op: "tree", replica: node.index });
-    const list = document.getElementById(`tree-${node.index}`);
-    list.textContent = "";
-
-    if (tree.length === 0) {
-      const empty = document.createElement("div");
-      empty.className = "tree-empty";
-      empty.textContent = "(empty)";
-      list.appendChild(empty);
-    }
-
-    for (const entry of tree) {
-      const row = document.createElement("div");
-      row.className = "tree-row";
-      row.style.paddingLeft = `${entry.depth * 16}px`;
-
-      const name = document.createElement("span");
-      name.className = entry.kind === "dir" ? "tree-dir" : "tree-file";
-      name.textContent = entry.kind === "dir" ? `${entry.name}/` : entry.name;
-      row.appendChild(name);
-
-      if (entry.name.includes("~conflict-")) {
-        const tag = document.createElement("span");
-        tag.className = "tree-tag";
-        tag.textContent = "conflict";
-        row.appendChild(tag);
-      }
-
-      if (entry.kind === "file") {
-        const size = document.createElement("span");
-        size.className = "tree-size";
-        size.textContent = formatBytes(entry.size);
-        row.appendChild(size);
-      }
-
-      list.appendChild(row);
-    }
+    renderTree(el(`tree-${i}`), CORE.call({ op: "tree", replica: i }));
   }
 
   const converged = roots.every((r) => r === roots[0]);
-  const banner = document.getElementById("converged");
+  panels.forEach((p) => p.setAttribute("data-diverged", String(!converged)));
+
+  const banner = el("converged");
   banner.className = `verdict ${converged ? "verdict-ok" : "verdict-diverged"}`;
   banner.textContent = converged
-    ? "State roots match — the replicas have converged"
-    : "State roots differ — the replicas have diverged";
+    ? "Converged — both replicas hold an identical filesystem"
+    : "Diverged — the replicas hold different state; sync to reconcile";
 }
 
+// --- actions ---------------------------------------------------------------
+
 function sync(from, to) {
-  const payload = PLAYGROUND.call({ op: "export", replica: from });
-  const result = PLAYGROUND.call({ op: "import", replica: to, payload });
+  const payload = CORE.call({ op: "export", replica: from });
+  const result = CORE.call({ op: "import", replica: to, payload });
   log(
-    `sync ${NODES[from].name} → ${NODES[to].name}: carried ${payload.ops.length} ops, ` +
-      `${payload.blobs.length} blobs, applied ${result.applied}`,
-    result.applied > 0 ? "ok" : "info",
+    `${NODES[from].label} → ${NODES[to].label}  sent ${payload.ops.length} ops, ` +
+      `${payload.blobs.length} chunks · ${result.applied} newly applied`,
+    "sync",
   );
 }
 
-function resetAll() {
-  PLAYGROUND.call({ op: "reset", names: NODES.map((n) => n.name) });
-  log("reset both replicas to an empty filesystem");
+function reset(quiet) {
+  CORE.call({ op: "reset", names: NODES.map((n) => `Replica ${n.label}`) });
+  hint("");
+  if (!quiet) {
+    clearLog();
+    log("reset both replicas to an empty filesystem");
+  }
 }
+
+const SCENARIOS = {
+  "scenario-offline": {
+    hint:
+      "Replica A built a tree while disconnected. B has never seen any of it. " +
+      "Press “A → B” to replicate the log and the chunks it references.",
+    run() {
+      CORE.call({ op: "mkdir", replica: 0, path: "/notes", now: 1000 });
+      CORE.call({ op: "put", replica: 0, path: "/notes/todo.md", content: "buy milk\nship M2", now: 1100 });
+      CORE.call({ op: "put", replica: 0, path: "/notes/journal.txt", content: "y".repeat(200), now: 1200 });
+      log("A worked offline: created /notes with two files", "warn");
+    },
+  },
+
+  "scenario-partition": {
+    hint:
+      "Both replicas created /shared while partitioned, each with a different file inside. " +
+      "Press “Sync both ways” — both directories survive and one is deterministically renamed.",
+    run() {
+      CORE.call({ op: "mkdir", replica: 0, path: "/shared", now: 1000 });
+      CORE.call({ op: "put", replica: 0, path: "/shared/from-a.txt", content: "written on A", now: 1100 });
+      CORE.call({ op: "mkdir", replica: 1, path: "/shared", now: 2000 });
+      CORE.call({ op: "put", replica: 1, path: "/shared/from-b.txt", content: "written on B", now: 2100 });
+      log("both replicas independently created /shared", "warn");
+    },
+  },
+
+  "scenario-writes": {
+    hint:
+      "Both replicas wrote different content to the same file at the same timestamp. " +
+      "Sync both ways: one write wins, and both replicas agree on which without negotiating.",
+    run() {
+      CORE.call({ op: "mkdir", replica: 0, path: "/doc", now: 1000 });
+      CORE.call({ op: "put", replica: 0, path: "/doc/report.md", content: "draft", now: 1100 });
+      // Give B the file first so both are writing to the same inode.
+      const seed = CORE.call({ op: "export", replica: 0 });
+      CORE.call({ op: "import", replica: 1, payload: seed });
+      CORE.call({ op: "put", replica: 0, path: "/doc/report.md", content: "A's version of the report", now: 5000 });
+      CORE.call({ op: "put", replica: 1, path: "/doc/report.md", content: "B's version of the report", now: 5000 });
+      log("both replicas rewrote /doc/report.md at the same timestamp", "warn");
+    },
+  },
+};
 
 function wire() {
   for (const node of NODES) {
     const i = node.index;
+    const path = () => el(`path-${i}`).value.trim();
 
-    document.getElementById(`mkdir-${i}`).addEventListener("click", () =>
+    el(`mkdir-${i}`).addEventListener("click", () =>
       guard(() => {
-        const path = document.getElementById(`path-${i}`).value.trim();
-        PLAYGROUND.call({ op: "mkdir", replica: i, path, now: now() });
-        log(`${node.name}: mkdir ${path}`, "ok");
+        const p = path();
+        CORE.call({ op: "mkdir", replica: i, path: p, now: now() });
+        log(`${node.label}  mkdir ${p}`, "ok");
       }),
     );
 
-    document.getElementById(`put-${i}`).addEventListener("click", () =>
+    el(`put-${i}`).addEventListener("click", () =>
       guard(() => {
-        const path = document.getElementById(`path-${i}`).value.trim();
-        const content = document.getElementById(`content-${i}`).value;
-        PLAYGROUND.call({ op: "put", replica: i, path, content, now: now() });
-        log(`${node.name}: wrote ${content.length} bytes to ${path}`, "ok");
+        const p = path();
+        const content = el(`content-${i}`).value;
+        CORE.call({ op: "put", replica: i, path: p, content, now: now() });
+        log(`${node.label}  put ${p} (${content.length} bytes)`, "ok");
       }),
     );
 
-    document.getElementById(`cat-${i}`).addEventListener("click", () =>
+    el(`cat-${i}`).addEventListener("click", () =>
       guard(() => {
-        const path = document.getElementById(`path-${i}`).value.trim();
-        const body = PLAYGROUND.call({ op: "cat", replica: i, path });
-        log(`${node.name}: cat ${path} → ${JSON.stringify(body)}`, "ok");
+        const p = path();
+        const body = CORE.call({ op: "cat", replica: i, path: p });
+        log(`${node.label}  cat ${p} → ${JSON.stringify(body)}`, "ok");
       }),
     );
 
-    document.getElementById(`rm-${i}`).addEventListener("click", () =>
+    el(`rm-${i}`).addEventListener("click", () =>
       guard(() => {
-        const path = document.getElementById(`path-${i}`).value.trim();
-        PLAYGROUND.call({ op: "rm", replica: i, path, now: now() });
-        log(`${node.name}: rm ${path}`, "ok");
+        const p = path();
+        CORE.call({ op: "rm", replica: i, path: p, now: now() });
+        log(`${node.label}  rm ${p}`, "ok");
       }),
     );
   }
 
-  document.getElementById("sync-ab").addEventListener("click", () => guard(() => sync(0, 1)));
-  document.getElementById("sync-ba").addEventListener("click", () => guard(() => sync(1, 0)));
-  document.getElementById("sync-both").addEventListener("click", () =>
+  el("sync-ab").addEventListener("click", () => guard(() => sync(0, 1)));
+  el("sync-ba").addEventListener("click", () => guard(() => sync(1, 0)));
+  el("sync-both").addEventListener("click", () =>
     guard(() => {
-      // Two one-way transfers, as a real bidirectional session would do.
+      // Two one-way transfers, as a real bidirectional session would perform.
       sync(0, 1);
       sync(1, 0);
     }),
   );
-  document.getElementById("reset").addEventListener("click", () => guard(resetAll));
+  el("reset").addEventListener("click", () => guard(() => reset(false)));
 
-  document.getElementById("scenario-partition").addEventListener("click", () =>
-    guard(() => {
-      resetAll();
-      PLAYGROUND.call({ op: "mkdir", replica: 0, path: "/shared", now: 1000 });
-      PLAYGROUND.call({ op: "put", replica: 0, path: "/shared/from-a.txt", content: "written on A", now: 1100 });
-      PLAYGROUND.call({ op: "mkdir", replica: 1, path: "/shared", now: 2000 });
-      PLAYGROUND.call({ op: "put", replica: 1, path: "/shared/from-b.txt", content: "written on B", now: 2100 });
-      log("both replicas independently created /shared while partitioned", "warn");
-      log("now press “Sync both ways” — both /shared links survive, one keeps the plain name", "info");
-    }),
-  );
-
-  document.getElementById("scenario-offline").addEventListener("click", () =>
-    guard(() => {
-      resetAll();
-      PLAYGROUND.call({ op: "mkdir", replica: 0, path: "/notes", now: 1000 });
-      PLAYGROUND.call({ op: "put", replica: 0, path: "/notes/todo.md", content: "buy milk\nship M2", now: 1100 });
-      PLAYGROUND.call({ op: "put", replica: 0, path: "/notes/long.txt", content: "y".repeat(200), now: 1200 });
-      log("A worked offline and built a tree; B has never seen it", "warn");
-      log("press “A → B” to replicate the oplog and its blobs", "info");
-    }),
-  );
+  for (const [id, scenario] of Object.entries(SCENARIOS)) {
+    el(id).addEventListener("click", () =>
+      guard(() => {
+        reset(true);
+        clearLog();
+        scenario.run();
+        hint(scenario.hint);
+      }),
+    );
+  }
 }
 
 (async function main() {
-  const status = document.getElementById("boot-status");
+  const status = el("boot-status");
   try {
-    await PLAYGROUND.boot();
-    resetAll();
+    await CORE.boot();
+    reset(true);
+    clearLog();
     wire();
     render();
-    status.textContent = "";
     status.hidden = true;
   } catch (err) {
-    status.className = "verdict verdict-diverged";
+    status.className = "verdict verdict-error";
     status.textContent = `Could not start the playground: ${err.message}`;
   }
 })();

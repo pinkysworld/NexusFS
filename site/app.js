@@ -1,33 +1,41 @@
+// Kept deliberately blunt about what is not built. A roadmap that reads as though
+// everything is nearly done is worse than no roadmap.
 const milestoneData = [
+  {
+    label: "M0",
+    title: "Workspace and daemon",
+    status: "done",
+    body: "Multi-crate Rust workspace, runnable binary, embedded admin surface, specifications."
+  },
   {
     label: "M1",
     title: "Local filesystem core",
-    body: "Canonical encoding, content-addressed chunks, persistent heads, and CRDT-backed state evolution."
+    status: "done",
+    body: "Signed operations applied to CRDT namespace state, deterministic conflict naming, path resolution and file reads, snapshots committing to structure and content."
   },
   {
     label: "M2",
     title: "External facade",
-    body: "A practical first interface, either POSIX/FUSE or an S3-like API surface."
+    status: "todo",
+    body: "A practical first interface, either POSIX/FUSE or an S3-like API surface, routed through the same operation pipeline."
   },
   {
     label: "M3",
     title: "Verified replication",
-    body: "QUIC transport, oplog synchronization, blob fetch, and trusted remote apply."
+    status: "todo",
+    body: "Peer manager, oplog synchronization, blob transfer and verified remote apply. The transport exists; the protocol above it does not."
   },
   {
     label: "M4",
     title: "Encryption and proofs",
-    body: "At-rest encryption, key envelopes, and transparent proof bundles on operations."
+    status: "todo",
+    body: "At-rest chunk encryption, key envelopes, and transparent proof bundles generated and enforced on operations."
   },
   {
-    label: "M5",
-    title: "Energy-aware behavior",
-    body: "Telemetry-informed scheduling that respects battery, heat, and expensive links."
-  },
-  {
-    label: "M6+",
-    title: "ZK expansion",
-    body: "Commitment-oriented proof systems and deeper privacy and verification research."
+    label: "M5–M8",
+    title: "Scheduling, hardening, ZK",
+    status: "todo",
+    body: "Energy-aware background work, operational tooling, then commitment-oriented proof systems and privacy research."
   }
 ];
 
@@ -49,9 +57,13 @@ function renderMilestones() {
   milestoneData.forEach((item, index) => {
     const article = document.createElement("article");
     article.className = "track-card reveal";
+    article.dataset.status = item.status;
     article.style.transitionDelay = `${index * 60}ms`;
     article.innerHTML = `
-      <span>${item.label}</span>
+      <span class="track-head">
+        <span class="track-label">${item.label}</span>
+        <span class="track-status">${item.status === "done" ? "Complete" : "Not started"}</span>
+      </span>
       <h3>${item.title}</h3>
       <p>${item.body}</p>
     `;

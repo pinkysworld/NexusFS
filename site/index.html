@@ -11,7 +11,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
@@ -37,13 +37,13 @@
       <main>
         <section class="hero reveal">
           <div class="hero-copy">
-            <p class="eyebrow">Distributed Filesystem Research, Built To Run</p>
-            <h1>Storage that keeps working when the network does not.</h1>
+            <p class="eyebrow">Verifiable offline-first storage</p>
+            <h1>A filesystem that keeps working when the network does not</h1>
             <p class="lede">
-              NexusFS combines local-first storage, signed operations, deterministic
-              replication, and proof-ready verification in a single executable. It is
-              designed for edge devices, offline-first workflows, and systems that
-              cannot afford blind trust.
+              NexusFS represents every change as a signed operation rather than a state
+              diff, so devices can write while disconnected and reconcile deterministically
+              later. Content is addressed by hash, namespace state is a CRDT, and remote
+              data is verified before it is trusted — not after.
             </p>
             <div class="cta-row">
               <a class="button button-primary" href="./playground.html">Try It In Your Browser</a>
@@ -85,55 +85,61 @@
 
         <section class="stats reveal">
           <div class="stat">
-            <span class="stat-label">Workspace crates</span>
-            <strong>13</strong>
+            <span class="stat-label">Milestone</span>
+            <strong>M1 of 8 complete</strong>
           </div>
           <div class="stat">
-            <span class="stat-label">Core principle</span>
-            <strong>Verifier first</strong>
+            <span class="stat-label">Hashing</span>
+            <strong>BLAKE3, content-addressed</strong>
           </div>
           <div class="stat">
-            <span class="stat-label">Local storage</span>
-            <strong>CAS + KV</strong>
+            <span class="stat-label">Conflict model</span>
+            <strong>OR-Map + LWW, no data loss</strong>
           </div>
           <div class="stat">
-            <span class="stat-label">Proof path</span>
-            <strong>Transparent to ZK</strong>
+            <span class="stat-label">Licence</span>
+            <strong>Apache-2.0 OR MIT</strong>
           </div>
         </section>
 
         <section class="section reveal">
           <div class="section-heading">
-            <p class="eyebrow">Why NexusFS</p>
-            <h2>Practical systems engineering with research headroom</h2>
+            <p class="eyebrow">Design decisions</p>
+            <h2>Four choices that shape everything else</h2>
           </div>
           <div class="card-grid">
             <article class="feature-card">
-              <h3>Offline-first by default</h3>
+              <h3>Operations, not diffs</h3>
               <p>
-                The system is built to survive partitions, weak connectivity, and
-                delayed synchronization without requiring an always-on control plane.
+                A write records <em>what the user meant</em> — create this name in this
+                directory — rather than the resulting bytes. Intent can be replayed in any
+                order and still land in the same place; a diff cannot.
               </p>
             </article>
             <article class="feature-card">
-              <h3>Signed, replay-safe operations</h3>
+              <h3>Inode ids derived from operations</h3>
               <p>
-                Every mutation is represented as a signed filesystem operation with a
-                stable identifier, allowing idempotent application across peers.
+                A new inode's id is a hash of the operation that allocated it, so every
+                replica names it identically without consulting a shared counter. Two
+                offline devices creating the same path produce two distinct inodes, which
+                is precisely the conflict the merge rules then resolve.
               </p>
             </article>
             <article class="feature-card">
-              <h3>Proof-ready architecture</h3>
+              <h3>Conflicts are renamed, never dropped</h3>
               <p>
-                Transparent verification is the immediate baseline, but the object and
-                protocol design reserve a clean path toward ZK commitments.
+                Concurrent writes to one name both survive. The lower dot keeps the plain
+                name, the other gains a suffix derived from its author and timestamp — a
+                value every replica computes the same way, so no round trip is needed to
+                agree.
               </p>
             </article>
             <article class="feature-card">
-              <h3>Energy-aware evolution</h3>
+              <h3>Verify before trusting</h3>
               <p>
-                Background work is intended to respect battery, temperature, and link
-                cost rather than pretending all nodes are always-on servers.
+                Signatures are checked before an operation can touch state, and chunk
+                hashes are checked before content is stored. A peer cannot hand you bytes
+                that do not match the hash you asked for.
               </p>
             </article>
           </div>
@@ -186,18 +192,26 @@
 
         <section class="section reveal" id="quickstart">
           <div class="section-heading">
-            <p class="eyebrow">Quick Start</p>
-            <h2>Run the local core in minutes</h2>
+            <p class="eyebrow">Quick start</p>
+            <h2>Files in and out of a real repository</h2>
           </div>
           <div class="command-block">
             <pre><code>cargo build -p nexusfs
-cargo run -p nexusfs -- daemon --config examples/nexusfs.toml
-cargo run -p nexusfs -- status --config examples/nexusfs.toml</code></pre>
+cp examples/nexusfs.toml ./nexusfs.toml
+
+cargo run -p nexusfs -- mkdir --config ./nexusfs.toml /docs
+echo "hello nexus" > /tmp/a.txt
+cargo run -p nexusfs -- put --config ./nexusfs.toml /tmp/a.txt /docs/a.txt
+cargo run -p nexusfs -- ls  --config ./nexusfs.toml /docs
+cargo run -p nexusfs -- cat --config ./nexusfs.toml /docs/a.txt</code></pre>
           </div>
           <p class="section-copy">
-            The current implementation already boots local storage, persists device
-            identity, creates a repository head on first launch, and serves the admin
-            surface from the embedded HTTP layer.
+            Every mutating command builds a signed operation and applies it through the
+            same pipeline replication will use, so the CLI is not a shortcut around the
+            state machine — it is a client of it. Run
+            <code>nexusfs daemon</code> for the admin console on
+            <code>127.0.0.1:7070</code>, which shows the head, state root, storage
+            accounting and recent operations.
           </p>
         </section>
 

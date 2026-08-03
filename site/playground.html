@@ -3,19 +3,20 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>NexusFS Playground | Run Two Replicas In Your Browser</title>
+    <title>Playground | NexusFS</title>
     <meta
       name="description"
-      content="Run the real NexusFS core in your browser: two replicas, a partition, and deterministic convergence."
+      content="Run two NexusFS replicas in your browser: partition them, edit both, sync, and watch them converge deterministically."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./playground.css" />
   </head>
   <body data-page="playground">
     <div class="page-shell">
@@ -35,143 +36,277 @@
       </header>
 
       <main>
-        <section class="hero hero-compact reveal">
-          <div class="hero-copy">
-            <p class="eyebrow">Playground</p>
-            <h1>Two replicas, one browser tab.</h1>
-            <p class="lede">
-              This is not a simulation. The page loads the NexusFS core compiled to
-              WebAssembly — the same signed operation log, the same CRDT namespace state
-              and the same conflict rules the native binary runs. Only the storage
-              backend differs, because storage is a trait.
-            </p>
+        <section class="page-intro reveal">
+          <p class="eyebrow">Playground</p>
+          <h1>Two replicas, one browser tab</h1>
+          <p class="lede">
+            A distributed filesystem is easy to describe and hard to believe. This page runs
+            two independent NexusFS replicas locally, so you can partition them, edit both,
+            reconnect, and check for yourself whether they actually agree afterwards.
+          </p>
+        </section>
+
+        <section class="section reveal">
+          <div class="split-panel">
+            <div>
+              <h2 class="panel-title">What is running</h2>
+              <p class="panel-copy">
+                The NexusFS core compiled to WebAssembly — the same Rust the native binary
+                runs. Not a mock, not a recording, not a reimplementation in JavaScript.
+                Only the storage backend differs: the daemon writes to an embedded database
+                on disk, this page keeps everything in memory. That substitution is possible
+                because storage is a trait rather than a hard-coded dependency.
+              </p>
+              <p class="panel-copy">
+                Each replica has its own device identity, signing key, operation log, CRDT
+                namespace state and content store. Neither can observe the other except
+                through an explicit sync.
+              </p>
+            </div>
+            <dl class="fact-list">
+              <div>
+                <dt>Runs</dt>
+                <dd>Entirely in this tab</dd>
+              </div>
+              <div>
+                <dt>Network</dt>
+                <dd>None — no server, no telemetry</dd>
+              </div>
+              <div>
+                <dt>Persistence</dt>
+                <dd>In memory; reload resets it</dd>
+              </div>
+              <div>
+                <dt>Module</dt>
+                <dd><code>nexusfs-wasm</code>, ~750&nbsp;KB</dd>
+              </div>
+            </dl>
           </div>
         </section>
 
         <section class="section reveal">
+          <h2 class="panel-title">How to use it</h2>
+          <ol class="steps">
+            <li>
+              <strong>Load a scenario</strong>, or write to a replica yourself: set a path
+              and content, then press <code>mkdir</code> or <code>put</code>. Directories
+              have to exist before files can go into them.
+            </li>
+            <li>
+              <strong>Compare the state roots.</strong> Each replica shows one — a
+              fingerprint of everything it currently holds. Different roots mean the two
+              disagree about the filesystem.
+            </li>
+            <li>
+              <strong>Sync.</strong> <code>A → B</code> hands A's operations and content to
+              B. <code>Sync both ways</code> does both directions, as a real session would.
+            </li>
+            <li>
+              <strong>Compare again.</strong> Matching roots mean the replicas hold
+              byte-identical filesystems. Sync repeatedly, or in a different order, and the
+              result should not change.
+            </li>
+          </ol>
+        </section>
+
+        <section class="section reveal" id="tool">
           <p id="boot-status" class="verdict">Loading the WebAssembly core…</p>
 
-          <div class="playground-bar">
-            <button id="scenario-offline" class="button button-primary">
-              Scenario: A worked offline
-            </button>
-            <button id="scenario-partition" class="button button-primary">
-              Scenario: both created /shared
-            </button>
-            <span class="playground-spacer"></span>
-            <button id="sync-ab" class="button button-secondary">A → B</button>
-            <button id="sync-ba" class="button button-secondary">B → A</button>
-            <button id="sync-both" class="button button-secondary">Sync both ways</button>
-            <button id="reset" class="button button-secondary">Reset</button>
+          <div class="toolbar">
+            <div class="toolbar-group">
+              <span class="toolbar-label">Scenario</span>
+              <button id="scenario-offline" class="btn btn-quiet">Offline edits</button>
+              <button id="scenario-partition" class="btn btn-quiet">Name collision</button>
+              <button id="scenario-writes" class="btn btn-quiet">Concurrent writes</button>
+            </div>
+            <div class="toolbar-group">
+              <span class="toolbar-label">Replicate</span>
+              <button id="sync-ab" class="btn">A → B</button>
+              <button id="sync-ba" class="btn">B → A</button>
+              <button id="sync-both" class="btn btn-accent">Sync both ways</button>
+            </div>
+            <div class="toolbar-group toolbar-end">
+              <button id="reset" class="btn btn-quiet">Reset</button>
+            </div>
           </div>
 
+          <p id="scenario-hint" class="hint" hidden></p>
           <p id="converged" class="verdict">…</p>
 
-          <div class="playground-grid">
-            <!-- Replica A -->
-            <article class="content-panel">
-              <h2>Replica A</h2>
-              <dl class="playground-stats">
-                <div><dt>State root</dt><dd><code id="root-0">…</code></dd></div>
-                <div><dt>Operations</dt><dd id="ops-0">0</dd></div>
+          <div class="replica-grid">
+            <article class="replica">
+              <header class="replica-head">
+                <h3>Replica A</h3>
+                <span class="replica-device" id="device-0">—</span>
+              </header>
+
+              <div class="root-line">
+                <span class="root-label">State root</span>
+                <code class="root-value" id="root-0">—</code>
+              </div>
+
+              <dl class="metrics">
+                <div><dt>Ops</dt><dd id="ops-0">0</dd></div>
                 <div><dt>Pending</dt><dd id="pending-0">0</dd></div>
-                <div><dt>Blobs</dt><dd id="blobs-0">0</dd></div>
+                <div><dt>Objects</dt><dd id="blobs-0">0</dd></div>
               </dl>
 
               <div class="tree" id="tree-0"></div>
 
-              <div class="playground-form">
-                <label for="path-0">Path</label>
-                <input id="path-0" value="/docs" spellcheck="false" />
-                <label for="content-0">Content</label>
-                <textarea id="content-0" rows="2" spellcheck="false">hello from A</textarea>
-                <div class="playground-actions">
-                  <button id="mkdir-0" class="button button-secondary">mkdir</button>
-                  <button id="put-0" class="button button-secondary">put</button>
-                  <button id="cat-0" class="button button-secondary">cat</button>
-                  <button id="rm-0" class="button button-secondary">rm</button>
+              <div class="composer">
+                <div class="field">
+                  <label for="path-0">Path</label>
+                  <input id="path-0" value="/docs" spellcheck="false" autocomplete="off" />
+                </div>
+                <div class="field">
+                  <label for="content-0">Content</label>
+                  <textarea id="content-0" rows="2" spellcheck="false">hello from A</textarea>
+                </div>
+                <div class="composer-actions">
+                  <button id="mkdir-0" class="btn btn-sm">mkdir</button>
+                  <button id="put-0" class="btn btn-sm">put</button>
+                  <button id="cat-0" class="btn btn-sm">cat</button>
+                  <button id="rm-0" class="btn btn-sm">rm</button>
                 </div>
               </div>
             </article>
 
-            <!-- Replica B -->
-            <article class="content-panel">
-              <h2>Replica B</h2>
-              <dl class="playground-stats">
-                <div><dt>State root</dt><dd><code id="root-1">…</code></dd></div>
-                <div><dt>Operations</dt><dd id="ops-1">0</dd></div>
+            <article class="replica">
+              <header class="replica-head">
+                <h3>Replica B</h3>
+                <span class="replica-device" id="device-1">—</span>
+              </header>
+
+              <div class="root-line">
+                <span class="root-label">State root</span>
+                <code class="root-value" id="root-1">—</code>
+              </div>
+
+              <dl class="metrics">
+                <div><dt>Ops</dt><dd id="ops-1">0</dd></div>
                 <div><dt>Pending</dt><dd id="pending-1">0</dd></div>
-                <div><dt>Blobs</dt><dd id="blobs-1">0</dd></div>
+                <div><dt>Objects</dt><dd id="blobs-1">0</dd></div>
               </dl>
 
               <div class="tree" id="tree-1"></div>
 
-              <div class="playground-form">
-                <label for="path-1">Path</label>
-                <input id="path-1" value="/docs" spellcheck="false" />
-                <label for="content-1">Content</label>
-                <textarea id="content-1" rows="2" spellcheck="false">hello from B</textarea>
-                <div class="playground-actions">
-                  <button id="mkdir-1" class="button button-secondary">mkdir</button>
-                  <button id="put-1" class="button button-secondary">put</button>
-                  <button id="cat-1" class="button button-secondary">cat</button>
-                  <button id="rm-1" class="button button-secondary">rm</button>
+              <div class="composer">
+                <div class="field">
+                  <label for="path-1">Path</label>
+                  <input id="path-1" value="/docs" spellcheck="false" autocomplete="off" />
+                </div>
+                <div class="field">
+                  <label for="content-1">Content</label>
+                  <textarea id="content-1" rows="2" spellcheck="false">hello from B</textarea>
+                </div>
+                <div class="composer-actions">
+                  <button id="mkdir-1" class="btn btn-sm">mkdir</button>
+                  <button id="put-1" class="btn btn-sm">put</button>
+                  <button id="cat-1" class="btn btn-sm">cat</button>
+                  <button id="rm-1" class="btn btn-sm">rm</button>
                 </div>
               </div>
             </article>
           </div>
 
-          <div class="content-panel" style="margin-top: 24px">
-            <h2>Activity</h2>
+          <div class="activity">
+            <h3 class="activity-title">Activity</h3>
             <div id="log" class="log"></div>
           </div>
         </section>
 
         <section class="section reveal">
-          <div class="content-panel">
-            <h2>What to look for</h2>
-            <ul class="list-block">
-              <li>
-                <strong>The state root, not the head.</strong> The head carries per-device
-                provenance, so two replicas holding identical data still have different
-                heads. The state root is a pure function of the applied operations — it is
-                what convergence actually means here.
-              </li>
-              <li>
-                <strong>Sync moves operations, then content.</strong> Each transfer carries
-                the oplog plus the blobs it references. Blob hashes are verified on arrival
-                before anything is stored.
-              </li>
-              <li>
-                <strong>Conflicts do not lose data.</strong> Create <code>/shared</code> on
-                both replicas while partitioned, then sync. Both links survive; the one with
-                the lower dot keeps the plain name and the other is renamed deterministically,
-                identically on both sides.
-              </li>
-              <li>
-                <strong>Order does not matter.</strong> Sync in either direction, in any
-                order, as many times as you like. Re-applying an operation is a no-op, and
-                operations that arrive before their parent are parked and retried.
-              </li>
-            </ul>
+          <h2 class="panel-title">What the numbers mean</h2>
+          <div class="define-grid">
+            <article class="define">
+              <h3>State root</h3>
+              <p>
+                A BLAKE3 commitment over every inode and its current content hash. It is a
+                pure function of the operations a replica has applied, so two replicas that
+                agree on it hold identical filesystems. This, not the snapshot head, is what
+                convergence means — the head also carries per-device provenance, so it
+                legitimately differs between replicas holding the same data.
+              </p>
+            </article>
+            <article class="define">
+              <h3>Ops</h3>
+              <p>
+                Entries in the operation log. Each mutation is a signed record of intent
+                rather than a state diff, which is what lets replicas apply them in any
+                order and still land in the same place. Signatures are checked before
+                anything touches state.
+              </p>
+            </article>
+            <article class="define">
+              <h3>Pending</h3>
+              <p>
+                Operations received but not yet applicable — a file whose parent directory
+                has not arrived, or a write whose content is still missing. They are parked
+                and retried automatically rather than rejected, because in an offline-first
+                system arriving early is normal, not an error.
+              </p>
+            </article>
+            <article class="define">
+              <h3>Objects</h3>
+              <p>
+                Everything in the content-addressed store: file chunks, plus the directory
+                and snapshot objects each write produces. Two converged replicas can hold
+                slightly different counts here — snapshots record which device authored
+                them — while still agreeing exactly on the state root.
+              </p>
+            </article>
+          </div>
+        </section>
+
+        <section class="section reveal">
+          <h2 class="panel-title">What to watch for</h2>
+          <div class="note-stack">
+            <article class="note">
+              <h3>Nothing is lost to a conflict</h3>
+              <p>
+                Run <em>Name collision</em>: both replicas create <code>/shared</code> while
+                partitioned, each holding a different file. After syncing, both directories
+                survive — one keeps the plain name, the other is renamed with a
+                deterministic suffix. Each replica derives the same suffix independently, so
+                no coordination is required and no writer silently loses work.
+              </p>
+            </article>
+            <article class="note">
+              <h3>Order does not matter</h3>
+              <p>
+                Sync in either direction, repeatedly, in any sequence. Re-applying an
+                operation is a no-op, and operations arriving before their dependencies
+                wait rather than failing. The state root is a function of <em>which</em>
+                operations a replica holds, never of when they turned up.
+              </p>
+            </article>
+            <article class="note">
+              <h3>Operations travel before content</h3>
+              <p>
+                A sync carries the log along with the chunks it references. Chunk hashes are
+                verified on arrival, so a peer cannot substitute different bytes for a hash
+                you asked for. If content is missing, the write parks instead of publishing
+                a file that would fail to read.
+              </p>
+            </article>
           </div>
         </section>
 
         <section class="section reveal">
           <div class="callout">
             <div>
-              <p class="eyebrow">Caveats</p>
+              <p class="eyebrow">Scope</p>
               <h2>This is the local core, not the network stack</h2>
               <p>
-                Replication here is a button, not a protocol: the page hands one replica's
-                oplog and blobs to the other in-process. The QUIC transport, peer handshake
-                and Have/Want negotiation are still unimplemented — that is milestone M3.
-                Encryption at rest and proof enforcement are not wired in either. State lives
-                in memory and is gone on reload.
+                Sync here is a button, not a protocol: the page hands one replica's log and
+                chunks to the other in-process. The QUIC transport, peer handshake and
+                Have/Want negotiation are milestone M3 and do not exist yet. Encryption at
+                rest and proof enforcement are not wired in either. What you are exercising
+                is the state machine those layers will sit on top of.
               </p>
             </div>
             <div class="callout-actions">
-              <a class="button button-primary" href="./status.html">Current Status</a>
+              <a class="button button-primary" href="./status.html">What is built</a>
               <a class="button button-secondary" href="./roadmap.html">Roadmap</a>
             </div>
           </div>
@@ -179,7 +314,7 @@
       </main>
 
       <footer class="site-footer">
-        <p>The NexusFS core, compiled to WebAssembly and running locally in your browser.</p>
+        <p>The NexusFS core, compiled to WebAssembly, running locally in your browser.</p>
         <p>© <span id="year"></span> NexusFS</p>
       </footer>
     </div>
