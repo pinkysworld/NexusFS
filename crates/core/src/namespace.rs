@@ -311,23 +311,39 @@ impl CoreState {
 
     /// Fetch and concatenate a `FileNode`'s chunks, verifying layout as it goes.
     pub fn materialize_file(&self, file: &FileNode) -> Result<Vec<u8>> {
+        // Whether a file is encrypted is recorded on the file, not on the node, so a
+        // node reads its own older plaintext files unchanged after enabling encryption.
+        let file_key = match &file.encryption {
+            Some(info) => {
+                let cipher = self.cipher.as_ref().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "file is encrypted but this node has no repository key configured"
+                    )
+                })?;
+                Some(cipher.open_file_key(&info.sealed_key)?)
+            }
+            None => None,
+        };
+
         let mut out = Vec::with_capacity(file.size as usize);
-        for chunk in &file.chunks {
-            let Some(bytes) = self.stores.blobs.get(&chunk.hash)? else {
+        for (index, chunk) in file.chunks.iter().enumerate() {
+            let Some(stored) = self.stores.blobs.get(&chunk.hash)? else {
                 bail!(
                     "missing chunk {} (offset {})",
                     hex(&chunk.hash),
                     chunk.offset
                 );
             };
-            if bytes.len() != chunk.len as usize {
+            // `len` is the stored length, which for ciphertext includes the AEAD tag.
+            if stored.len() != chunk.len as usize {
                 bail!(
                     "chunk {} length mismatch: stored {}, expected {}",
                     hex(&chunk.hash),
-                    bytes.len(),
+                    stored.len(),
                     chunk.len
                 );
             }
+            // `offset` is into the plaintext, so it tracks the assembled output.
             if chunk.offset as usize != out.len() {
                 bail!(
                     "chunk {} offset mismatch: expected {}, got {}",
@@ -336,7 +352,18 @@ impl CoreState {
                     chunk.offset
                 );
             }
-            out.extend_from_slice(&bytes);
+
+            match &file_key {
+                // Authentication failure means altered ciphertext or the wrong
+                // repository key. Either way the read must fail rather than return
+                // whatever the bytes happen to decode to.
+                Some(key) => out.extend_from_slice(&nexusfs_crypto::RepoCipher::open_chunk(
+                    key,
+                    index as u64,
+                    &stored,
+                )?),
+                None => out.extend_from_slice(&stored),
+            }
         }
 
         if out.len() as u64 != file.size {

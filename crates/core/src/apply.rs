@@ -48,13 +48,18 @@ fn pending_key(op_id: OpId) -> Vec<u8> {
     k
 }
 
+/// True when `chunks` cover the file's plaintext exactly once, start to end.
+///
+/// Measured in plaintext, not stored bytes: an encrypted chunk is longer than the
+/// content it holds, so summing stored lengths would never reach `new_size` and every
+/// encrypted write would be misrouted to the splice path.
 fn chunks_form_whole_file(chunks: &[ChunkRef], new_size: u64) -> bool {
     let mut expected = 0u64;
     for c in chunks {
         if c.offset != expected {
             return false;
         }
-        expected += c.len as u64;
+        expected += c.plain_len as u64;
     }
     expected == new_size
 }
@@ -107,7 +112,26 @@ impl CoreState {
     /// keyed by `(name, dot)` and LWW merges are idempotent, so replaying an op whose
     /// state write landed but whose applied-marker did not is a no-op.
     pub fn apply_op(&self, op: &FsOp) -> Result<ApplyOutcome> {
+        self.apply_op_inner(op, true)
+    }
+
+    /// Apply without the proof-policy gate.
+    ///
+    /// Used only by `apply_local`, whose provisional operation cannot carry evidence
+    /// yet: the proof records the state root the operation produces, which does not
+    /// exist until it has been applied. Structure checks still run on the final,
+    /// proven version that gets stored.
+    pub(crate) fn apply_op_unproven(&self, op: &FsOp) -> Result<ApplyOutcome> {
+        self.apply_op_inner(op, false)
+    }
+
+    fn apply_op_inner(&self, op: &FsOp, check_policy: bool) -> Result<ApplyOutcome> {
         self.verify_op(op)?;
+        // Structure is checked before anything is stored, so malformed evidence is
+        // rejected rather than retained alongside state it purports to describe.
+        if check_policy {
+            self.check_proof(op, self.proofs)?;
+        }
 
         if self.is_op_applied(op.id)? {
             return Ok(ApplyOutcome::AlreadyApplied);
@@ -252,7 +276,8 @@ impl CoreState {
                 offset,
                 chunks,
                 new_size,
-            } => self.mutate_write(op, *inode, *offset, chunks, *new_size),
+                encryption,
+            } => self.mutate_write(op, *inode, *offset, chunks, *new_size, encryption.clone()),
             FsOpKind::Rename {
                 old_parent,
                 old_name,
@@ -321,6 +346,7 @@ impl CoreState {
         offset: u64,
         chunks: &[ChunkRef],
         new_size: u64,
+        encryption: Option<Vec<u8>>,
     ) -> Result<Mutation> {
         let Some(mut record) = self.load_inode(inode)? else {
             return Ok(Mutation::Unmet(format!("inode {inode:x} does not exist")));
@@ -342,9 +368,15 @@ impl CoreState {
         }
 
         // Fast path: the op carries the whole file, so the chunk list *is* the file and
-        // no bytes have to be read back to build it.
+        // no bytes have to be read back to build it. Note the chunks are stored exactly
+        // as received — encrypted content is never decrypted just to re-record it.
         let node_hash = if offset == 0 && chunks_form_whole_file(chunks, new_size) {
-            self.make_filenode_with_refs(chunks.to_vec(), new_size, op.time_unix_ms)?
+            self.make_filenode(
+                chunks.to_vec(),
+                new_size,
+                op.time_unix_ms,
+                encryption.map(|sealed_key| crate::object::FileEncryption { sealed_key }),
+            )?
         } else {
             // Partial write: we must splice, which needs the existing bytes and the
             // incoming bytes locally. If either is missing, park the op.

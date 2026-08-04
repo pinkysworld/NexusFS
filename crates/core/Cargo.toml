@@ -22,4 +22,5 @@ nexusfs-crypto = { path = "../crypto" }
 
 [dev-dependencies]
 tempfile.workspace = true
+nexusfs-proto = { path = "../proto" }
 nexusfs-storage = { path = "../storage", features = ["sled"] }

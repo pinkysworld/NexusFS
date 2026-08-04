@@ -63,6 +63,7 @@ where
         out.push(ChunkRef {
             hash,
             len: chunk.len() as u32,
+            plain_len: chunk.len() as u32,
             offset,
         });
         offset += chunk.len() as u64;
@@ -87,6 +88,7 @@ where
         out.push(ChunkRef {
             hash,
             len: chunk.len() as u32,
+            plain_len: chunk.len() as u32,
             offset,
         });
         offset += chunk.len() as u64;

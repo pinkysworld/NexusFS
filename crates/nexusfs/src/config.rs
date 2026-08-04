@@ -72,8 +72,12 @@ pub struct Posix {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Security {
+    /// Encrypt chunk content before it is written to disk.
     pub encrypt_at_rest: bool,
-    pub proof_mode: String, // none|transparent|zk_commit|zk_full
+    /// `none`, `transparent`, or `required` (transparent, and reject unproven ops).
+    /// `zk_commit` and `zk_full` are accepted but not implemented, and behave as
+    /// `none` rather than silently pretending to prove anything.
+    pub proof_mode: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

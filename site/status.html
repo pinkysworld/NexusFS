@@ -35,13 +35,14 @@
         <section class="hero hero-compact reveal">
           <div class="hero-copy">
             <p class="eyebrow">Current Status</p>
-            <h1>Two nodes converge over the network.</h1>
+            <h1>Encrypted, replicated, and auditable.</h1>
             <p class="lede">
-              Milestones M0 through M3 are complete: files round-trip through a signed
+              Milestones M0 through M4 are complete: files round-trip through a signed
               operation log applied to CRDT-backed namespace state, an S3-compatible API
-              exposes that state over HTTP, and two nodes converge over QUIC with every
-              operation and chunk verified before it is accepted. Encryption at rest and
-              proof enforcement are still in the backlog.
+              exposes that state over HTTP, two nodes converge over QUIC with every
+              operation and chunk verified before it is accepted, and content is
+              encrypted at rest without breaking that verification. Energy-aware
+              scheduling, the POSIX facade and ZK proofs are still in the backlog.
             </p>
           </div>
         </section>
@@ -66,15 +67,15 @@
             <article class="feature-card">
               <h3>Present as scaffolding</h3>
               <p>
-                Transparent proofs, POSIX/FUSE, privacy, energy and ZK crates exist,
-                but remain placeholders or partially wired layers.
+                POSIX/FUSE, privacy, energy and ZK crates exist, but remain
+                placeholders or partially wired layers.
               </p>
             </article>
             <article class="feature-card">
               <h3>Highest-value backlog</h3>
               <p>
-                Encryption at rest and automatic proof bundles, so replicated state is
-                private as well as verifiable.
+                Energy-aware scheduling, so background replication respects battery,
+                heat and link cost on edge devices.
               </p>
             </article>
           </div>
@@ -95,13 +96,13 @@
               <li>Admin API and browsable console for state, storage, and oplog</li>
               <li>S3-compatible objects, buckets, and ListObjectsV2</li>
               <li>QUIC replication with verified remote apply and pinned peer keys</li>
+              <li>At-rest encryption with per-file keys, still verifiable by peers</li>
+              <li>Signed transparent proofs and a <code>verify</code> audit command</li>
             </ul>
           </div>
           <div class="content-panel">
             <h2>Still in backlog</h2>
             <ul class="list-block">
-              <li>Integrated encryption-at-rest write path</li>
-              <li>Automatic proof attachment and verification enforcement</li>
               <li>POSIX/FUSE facade</li>
               <li>Energy-aware scheduling wired into background jobs</li>
             </ul>

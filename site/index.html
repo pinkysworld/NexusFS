@@ -56,11 +56,12 @@
             <div class="panel-orbit"></div>
             <div class="status-card">
               <span class="status-label">Current Baseline</span>
-              <strong>Milestones M0–M3: replication over QUIC</strong>
+              <strong>Milestones M0–M4: encrypted, replicated, verifiable</strong>
               <p>
                 Two nodes converge over QUIC with every operation and chunk verified
-                before it is accepted, reachable through the CLI and an S3-compatible
-                API. Encryption at rest is next.
+                before it is accepted, content is encrypted at rest without breaking
+                that verification, and operations carry signed evidence of what they
+                changed.
               </p>
             </div>
             <div class="mini-grid">
@@ -87,15 +88,15 @@
         <section class="stats reveal">
           <div class="stat">
             <span class="stat-label">Milestone</span>
-            <strong>M3 of 8 complete</strong>
+            <strong>M4 of 8 complete</strong>
           </div>
           <div class="stat">
             <span class="stat-label">Hashing</span>
             <strong>BLAKE3, content-addressed</strong>
           </div>
           <div class="stat">
-            <span class="stat-label">Conflict model</span>
-            <strong>OR-Map + LWW, no data loss</strong>
+            <span class="stat-label">At rest</span>
+            <strong>XChaCha20-Poly1305, per-file keys</strong>
           </div>
           <div class="stat">
             <span class="stat-label">Licence</span>

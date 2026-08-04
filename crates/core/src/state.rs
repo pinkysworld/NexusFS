@@ -13,7 +13,10 @@ use crate::codec::{decode, encode, encode_object};
 use crate::hash::hash_bytes;
 use crate::inode::ROOT_INODE;
 use crate::namespace::InodeRecord;
-use crate::object::{ChunkRef, DirEntry, DirNode, EntryType, FileNode, Object, ObjectHeader};
+use crate::object::{
+    ChunkRef, DirEntry, DirNode, EntryType, FileEncryption, FileNode, Object, ObjectHeader,
+};
+use nexusfs_crypto::RepoCipher;
 
 pub(crate) const CF_META: &str = "meta";
 pub(crate) const CF_OPLOG: &str = "oplog";
@@ -69,6 +72,14 @@ pub struct CoreState {
     pub stores: Stores,
     pub device_id: DeviceId,
     pub chunk_size: usize,
+    /// Present when the node encrypts chunk content at rest.
+    ///
+    /// Reads work either way: whether a file is encrypted is recorded on the file
+    /// itself, so a node can read plaintext files it wrote before encryption was
+    /// switched on.
+    pub cipher: Option<Arc<RepoCipher>>,
+    /// How this node treats proofs on operations it creates and receives.
+    pub proofs: crate::proof::ProofPolicy,
 }
 
 impl CoreState {
@@ -77,7 +88,25 @@ impl CoreState {
             stores,
             device_id,
             chunk_size: 1024 * 1024,
+            cipher: None,
+            proofs: crate::proof::ProofPolicy::None,
         }
+    }
+
+    /// Generate and check transparent proofs according to `policy`.
+    pub fn with_proofs(mut self, policy: crate::proof::ProofPolicy) -> Self {
+        self.proofs = policy;
+        self
+    }
+
+    /// Encrypt chunk content written from now on.
+    pub fn with_encryption(mut self, cipher: Arc<RepoCipher>) -> Self {
+        self.cipher = Some(cipher);
+        self
+    }
+
+    pub fn encryption_enabled(&self) -> bool {
+        self.cipher.is_some()
     }
 
     /// Store an encoded object in the CAS keyed by its BLAKE3 hash.
@@ -302,10 +331,50 @@ impl CoreState {
         conflicts::conflict_name(base, device_id.0, time_ms)
     }
 
+    /// Split `data` into chunks and store them, without encryption.
     pub fn store_chunks(&self, data: &[u8]) -> Result<Vec<ChunkRef>> {
         store_chunks_with_refs(data, self.chunk_size, |hash, chunk| {
             self.stores.blobs.put(hash, chunk)
         })
+    }
+
+    /// Split `data` into chunks and store them, encrypting when the node is configured
+    /// to. Returns the refs plus the key material to record on the file.
+    ///
+    /// Each chunk is named by the hash of the bytes as stored — ciphertext when
+    /// encryption is on — so a peer can verify a transfer without holding any key.
+    pub fn store_content(&self, data: &[u8]) -> Result<(Vec<ChunkRef>, Option<FileEncryption>)> {
+        let Some(cipher) = &self.cipher else {
+            return Ok((self.store_chunks(data)?, None));
+        };
+
+        // A fresh key per write is what keeps the derived chunk nonces unique.
+        let file_key = RepoCipher::new_file_key();
+
+        let mut refs = Vec::new();
+        let mut plaintext_offset = 0u64;
+        for (index, plain) in crate::chunker::chunk_bytes(data, self.chunk_size.max(1))
+            .into_iter()
+            .enumerate()
+        {
+            let sealed = RepoCipher::seal_chunk(&file_key, index as u64, plain)?;
+            let hash = hash_bytes(&sealed);
+            self.stores.blobs.put(hash, &sealed)?;
+
+            refs.push(ChunkRef {
+                hash,
+                // Stored length, which includes the AEAD tag.
+                len: sealed.len() as u32,
+                // Content length, which is what file offsets and sizes are measured in.
+                plain_len: plain.len() as u32,
+                // Offset into the plaintext, so reads can be assembled in order.
+                offset: plaintext_offset,
+            });
+            plaintext_offset += plain.len() as u64;
+        }
+
+        let sealed_key = cipher.seal_file_key(&file_key)?;
+        Ok((refs, Some(FileEncryption { sealed_key })))
     }
 
     pub fn make_filenode_with_refs(
@@ -313,6 +382,17 @@ impl CoreState {
         chunks: Vec<ChunkRef>,
         size: u64,
         now_ms: u64,
+    ) -> Result<Hash> {
+        self.make_filenode(chunks, size, now_ms, None)
+    }
+
+    /// Build and store a `FileNode`.
+    pub fn make_filenode(
+        &self,
+        chunks: Vec<ChunkRef>,
+        size: u64,
+        now_ms: u64,
+        encryption: Option<FileEncryption>,
     ) -> Result<Hash> {
         let file = FileNode {
             header: ObjectHeader {
@@ -326,13 +406,14 @@ impl CoreState {
             gid: 0,
             mtime_unix_ms: now_ms,
             ctime_unix_ms: now_ms,
+            encryption,
         };
         self.put_object(&Object::FileNode(file))
     }
 
     pub fn store_filenode_from_bytes(&self, data: &[u8], now_ms: u64) -> Result<Hash> {
-        let chunk_refs = self.store_chunks(data)?;
-        self.make_filenode_with_refs(chunk_refs, data.len() as u64, now_ms)
+        let (chunks, encryption) = self.store_content(data)?;
+        self.make_filenode(chunks, data.len() as u64, now_ms, encryption)
     }
 
     /// Build a canonical DirNode and store it.

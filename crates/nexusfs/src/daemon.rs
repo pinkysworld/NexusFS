@@ -201,7 +201,30 @@ pub(crate) fn open_core(cfg: &Config) -> Result<(CoreState, Identity, String)> {
 
     // Device id: store a persistent random u128 in KV if absent.
     let device_id = load_or_create_device_id(&stores)?;
-    let core = CoreState::new(stores, device_id);
+    let mut core = CoreState::new(stores, device_id);
+
+    // At-rest encryption. The repository key sits beside the identity; anyone who can
+    // read it can read every chunk, so it is written owner-only.
+    if cfg.security.encrypt_at_rest {
+        let key_path = data_dir.join("repo.key");
+        let cipher = nexusfs_crypto::RepoCipher::load_or_create(&key_path)
+            .context("load or create repository key")?;
+        core = core.with_encryption(Arc::new(cipher));
+    }
+
+    let policy = nexusfs_core::ProofPolicy::from_config(&cfg.security.proof_mode);
+    if policy == nexusfs_core::ProofPolicy::None
+        && !matches!(
+            cfg.security.proof_mode.trim().to_ascii_lowercase().as_str(),
+            "" | "none"
+        )
+    {
+        tracing::warn!(
+            mode = %cfg.security.proof_mode,
+            "proof mode is not implemented in this build; running without proofs"
+        );
+    }
+    let core = core.with_proofs(policy);
 
     // Admin token:
     // - if config token provided, use it

@@ -28,14 +28,14 @@ const milestoneData = [
   {
     label: "M4",
     title: "Encryption and proofs",
-    status: "todo",
-    body: "At-rest chunk encryption, key envelopes, and transparent proof bundles generated and enforced on operations."
+    status: "done",
+    body: "Chunk content encrypted at rest with per-file keys, still addressed by ciphertext hash so peers verify transfers without holding a key. Operations carry signed transparent proofs; nexusfs verify audits the repository."
   },
   {
     label: "M5–M8",
     title: "Scheduling, hardening, ZK",
     status: "todo",
-    body: "Energy-aware background work, operational tooling, then commitment-oriented proof systems and privacy research."
+    body: "Energy-aware background work, operational tooling, then commitment-oriented proof systems and privacy research. None of this is started."
   }
 ];
 

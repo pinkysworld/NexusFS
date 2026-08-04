@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use chacha20poly1305::aead::{Aead, AeadCore, KeyInit};
-use chacha20poly1305::XChaCha20Poly1305;
+use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use rand::rngs::OsRng;
-use x25519_dalek::{EphemeralSecret, PublicKey};
+use x25519_dalek::{EphemeralSecret, PublicKey, StaticSecret};
 
 /// A simple key envelope using X25519 to derive a shared secret, then XChaCha20-Poly1305.
 /// This is a placeholder for a proper HPKE-like construction.
@@ -43,8 +43,28 @@ pub fn seal(recipient_pub: [u8; 32], file_key: &[u8], aad: &[u8]) -> Result<Enve
     })
 }
 
-/// Decrypt an envelope with recipient private key.
-/// NOTE: This skeleton does not define how recipient private keys are stored; integrate later.
-pub fn open(_recipient_secret: [u8; 32], _env: &Envelope, _aad: &[u8]) -> Result<Vec<u8>> {
-    anyhow::bail!("Envelope open is not implemented in skeleton (needs recipient secret handling).")
+/// Decrypt an envelope with the recipient's X25519 secret.
+///
+/// The sender's ephemeral public key travels with the envelope, so the recipient can
+/// re-derive the same shared secret without any prior exchange. `aad` must match what
+/// was passed to [`seal`], which is how the envelope is bound to its context.
+pub fn open(recipient_secret: [u8; 32], env: &Envelope, aad: &[u8]) -> Result<Vec<u8>> {
+    let secret = StaticSecret::from(recipient_secret);
+    let sender_ephemeral = PublicKey::from(env.sender_ephemeral_pub);
+
+    let shared = secret.diffie_hellman(&sender_ephemeral);
+    let key = kdf(shared.to_bytes());
+
+    let cipher = XChaCha20Poly1305::new((&key).into());
+    cipher
+        .decrypt(
+            XNonce::from_slice(&env.nonce),
+            chacha20poly1305::aead::Payload {
+                msg: &env.ciphertext,
+                aad,
+            },
+        )
+        .map_err(|_| {
+            anyhow::anyhow!("envelope failed authentication; wrong recipient key or tampered data")
+        })
 }

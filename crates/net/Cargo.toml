@@ -27,4 +27,5 @@ serde.workspace = true
 
 [dev-dependencies]
 nexusfs-storage = { path = "../storage" }
+nexusfs-crypto = { path = "../crypto" }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "io-util"] }

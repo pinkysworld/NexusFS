@@ -1247,6 +1247,7 @@ dependencies = [
  "blake3",
  "chacha20poly1305",
  "ed25519-dalek",
+ "hex",
  "rand 0.8.5",
  "serde",
  "toml",

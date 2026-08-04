@@ -43,6 +43,11 @@ pub enum FsOpKind {
         /// out the file from the oplog before fetching any blob.
         chunks: Vec<ChunkRef>,
         new_size: u64,
+        /// The file key, sealed with the repository key, when the chunks hold
+        /// ciphertext. Travels with the operation so a replica records the same
+        /// encryption state without a side channel.
+        #[serde(default)]
+        encryption: Option<Vec<u8>>,
     },
     Rename {
         old_parent: u128,

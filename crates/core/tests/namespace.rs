@@ -148,9 +148,11 @@ fn write_with_unfetched_chunks_is_parked_not_applied() {
         chunks: vec![ChunkRef {
             hash: blake3::hash(payload).into(),
             len: payload.len() as u32,
+            plain_len: payload.len() as u32,
             offset: 0,
         }],
         new_size: payload.len() as u64,
+        encryption: None,
     };
 
     match core

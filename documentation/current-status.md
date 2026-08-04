@@ -6,13 +6,13 @@ This page summarizes what NexusFS currently implements in the repository and wha
 
 ## Overall State
 
-**Milestones M0 through M3 are complete.** NexusFS is a working distributed filesystem:
+**Milestones M0 through M4 are complete.** NexusFS is a working distributed filesystem:
 files round-trip through a signed operation log applied to CRDT-backed namespace state,
-an S3-compatible API exposes that state over HTTP, and two nodes converge over QUIC with
-every operation and chunk verified before it is accepted.
+an S3-compatible API exposes that state over HTTP, two nodes converge over QUIC with
+every operation and chunk verified before it is accepted, and content can be encrypted
+at rest while still replicating.
 
-Not yet implemented: encryption at rest, proof generation and enforcement, the
-POSIX/FUSE facade, energy-aware scheduling, and ZK proofs.
+Not yet implemented: the POSIX/FUSE facade, energy-aware scheduling, and ZK proofs.
 
 ## Implemented Now
 
@@ -73,10 +73,13 @@ POSIX/FUSE facade, energy-aware scheduling, and ZK proofs.
   - `/api/oplog/summary`
   - `/api/oplog/recent?limit=`
   - `/api/storage/stats`
+  - `/api/peers`
+  - `/api/security` (encryption state, proof coverage, audit result)
 
 ### CLI
 
-`nexusfs` supports `daemon`, `status`, `mkdir [-p]`, `put`, `cat`, `ls`, `rm` and `mv`.
+`nexusfs` supports `daemon`, `status`, `verify`, `mkdir [-p]`, `put`, `cat`, `ls`, `rm`
+and `mv`.
 Every mutating verb builds a signed operation and applies it through the same pipeline
 replication uses.
 
@@ -122,6 +125,55 @@ transfer counts.
 Not implemented: push notification of new operations (peers poll on an interval),
 delta-encoded operation ranges, and bandwidth or energy-aware scheduling.
 
+### Encryption At Rest
+
+Chunk content is encrypted with XChaCha20-Poly1305 before it is written, when
+`security.encrypt_at_rest` is on. Each write mints a fresh file key; that key is sealed
+with a repository key stored beside the device identity and travels inside the
+`FileNode`, so content needs no side channel to be readable by a replica holding the
+same repository key.
+
+Chunks stay addressed by the hash of the bytes *as stored* — the ciphertext. That is
+what keeps replication verifiable: a peer checks `hash(received) == requested` before
+storing anything, and must be able to do so without holding any key. A peer with the
+wrong repository key still converges on structure and still verifies transfers; it
+simply cannot read the content.
+
+The cost of this choice is that identical plaintext under different file keys does not
+deduplicate. Convergent encryption would recover that at the price of letting anyone
+holding a candidate file confirm whether a node stores it, so it is not used.
+
+Whether a file is encrypted is recorded on the file, not on the node, so enabling
+encryption does not strand content written before it was switched on.
+
+Limitations worth stating plainly: replicas share one repository key, so this protects
+the disk and the wire, not one peer from another. Per-recipient key distribution is what
+`crypto::envelope` is for — now implemented, including `open`, but not yet wired into
+the write path. File names, directory structure and file sizes are not encrypted.
+
+### Transparent Proofs
+
+With `security.proof_mode = "transparent"`, every locally created operation carries a
+bundle recording the state root before it, the state root after it, and the object
+hashes it introduced. The signature covers the bundle, so an author cannot later claim
+a different transition.
+
+On receipt, a malformed or mislabelled bundle is rejected deterministically — malformed
+evidence is worse than none. A well-formed bundle whose `old_root` the receiver cannot
+corroborate is accepted rather than refused, because operations legitimately arrive
+before the state they build on. Setting `proof_mode = "required"` additionally refuses
+operations that carry no proof at all.
+
+`nexusfs verify` audits a repository: every signature, every proof's structure, and a
+read of every file, which exercises chunk presence, ordering and — when encrypted —
+authentication. It exits non-zero on failure, so it works as a cron or CI check. The
+same report is available at `/api/security`.
+
+These proofs are auditable evidence, not zero-knowledge and not a proof of correctness.
+Establishing that a transition was correct means replaying it, which `verify` does
+locally. `zk_commit` and `zk_full` remain unimplemented and are treated as `none`
+rather than silently pretending to prove anything.
+
 ### Browser Playground
 
 `crates/wasm` compiles the core to `wasm32-unknown-unknown` against the in-memory
@@ -137,29 +189,28 @@ daemon uses between real nodes.
 
 ### Test Coverage
 
-55 tests, including order-independent convergence (the same operation set applied in
+70 tests, including order-independent convergence (the same operation set applied in
 different orders yields an identical state root), idempotent re-apply, pending-op drain,
 concurrent-create conflict naming, concurrent-write resolution, rename-vs-unlink,
 subtree-cycle refusal, restart persistence, S3 key mapping and pagination, and
 replication over both an in-memory pipe and real QUIC sockets — covering unknown-peer
 refusal, key-rotation refusal, forged-operation rejection and corrupted-content
-rejection.
+rejection, encrypted round-trips, absence of plaintext on disk, wrong-key and
+tampered-ciphertext rejection, and replication of encrypted content to peers with and
+without the repository key.
 
 ## Partially Implemented Or Present As Scaffolding
 
-- Transparent proof structures exist, but proofs are not generated or enforced.
-- Crypto helpers exist for signing, AEAD, and envelopes. Operation signing is live;
-  at-rest encryption is not integrated into the write path, and `Envelope::open` is
-  unimplemented.
+- `crypto::envelope` now seals *and* opens, but is not yet used by the write path.
 - POSIX/FUSE, privacy, energy and ZK crates are present but remain stubs.
 
 ## Backlog
 
 ### Highest-Priority Backlog
 
-- Integrate chunk encryption into the live storage path (M4).
-- Attach and enforce transparent proof bundles (M4).
+- Wire energy telemetry and the scheduler into real background decisions (M5).
 - Replace polling with push notification of new operations.
+- Per-recipient key envelopes, so replicas need not share one repository key.
 
 ### Security and Verification Backlog
 
@@ -190,7 +241,8 @@ rejection.
 - M1 is complete.
 - M2 is complete via the S3 facade; the POSIX/FUSE alternative remains unimplemented.
 - M3 is complete: two nodes converge over QUIC with verified remote apply.
-- M4 and beyond are backlog, except for crate scaffolding and interface placeholders.
+- M4 is complete: encryption at rest and transparent proofs.
+- M5 and beyond are backlog, except for crate scaffolding and interface placeholders.
 
 ## Recommended Next Step
 

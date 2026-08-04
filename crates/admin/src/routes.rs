@@ -42,6 +42,7 @@ pub fn router(state: AdminState) -> Router {
         .route("/api/fs/ls", get(fs_ls))
         .route("/api/oplog/recent", get(oplog_recent))
         .route("/api/peers", get(peers))
+        .route("/api/security", get(security))
         .with_state(state)
 }
 
@@ -119,6 +120,42 @@ async fn oplog_summary(
         .clock_summary()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(sum))
+}
+
+#[derive(Serialize)]
+struct SecurityResp {
+    encryption_at_rest: bool,
+    proof_policy: String,
+    ops_total: usize,
+    ops_with_proof: usize,
+    ops_without_proof: usize,
+    malformed_proofs: usize,
+    signature_failures: usize,
+    unreadable_files: Vec<String>,
+    healthy: bool,
+}
+
+/// Audit the repository and report what the check found.
+///
+/// Reads every file, so it is deliberately not on the status page's refresh path.
+async fn security(
+    State(st): State<AdminState>,
+    headers: HeaderMap,
+) -> Result<Json<SecurityResp>, (StatusCode, String)> {
+    require_token(&headers, &st.token).map_err(|c| (c, "unauthorized".into()))?;
+
+    let report = st.core.verify_repository().map_err(server_error)?;
+    Ok(Json(SecurityResp {
+        encryption_at_rest: st.core.encryption_enabled(),
+        proof_policy: format!("{:?}", st.core.proofs).to_lowercase(),
+        ops_total: report.operations,
+        ops_with_proof: report.with_proof,
+        ops_without_proof: report.without_proof,
+        malformed_proofs: report.malformed,
+        signature_failures: report.signature_failures,
+        healthy: report.ok(),
+        unreadable_files: report.unreadable_files,
+    }))
 }
 
 #[derive(Serialize)]

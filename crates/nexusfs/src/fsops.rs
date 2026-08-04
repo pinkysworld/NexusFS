@@ -91,3 +91,51 @@ pub async fn run_mv(config_path: PathBuf, from: String, to: String) -> Result<()
     println!("moved {from} -> {to}");
     Ok(())
 }
+
+pub async fn run_verify(config_path: PathBuf) -> Result<()> {
+    let (core, _identity) = open_repo(&config_path)?;
+    let report = core.verify_repository()?;
+
+    println!("operations:        {}", report.operations);
+    println!(
+        "  with proof:      {} ({} without)",
+        report.with_proof, report.without_proof
+    );
+    println!("  malformed proof: {}", report.malformed);
+    println!("  bad signature:   {}", report.signature_failures);
+    println!(
+        "state root:        {}",
+        report
+            .state_root
+            .map(hex::encode)
+            .unwrap_or_else(|| "(none)".into())
+    );
+    println!(
+        "encryption:        {}",
+        if core.encryption_enabled() {
+            "on"
+        } else {
+            "off"
+        }
+    );
+
+    if report.unreadable_files.is_empty() {
+        println!("files:             all readable");
+    } else {
+        println!(
+            "files:             {} UNREADABLE",
+            report.unreadable_files.len()
+        );
+        for path in &report.unreadable_files {
+            println!("  {path}");
+        }
+    }
+
+    if report.ok() {
+        println!("\nrepository verified");
+        Ok(())
+    } else {
+        // A non-zero exit makes this usable from a cron job or CI step.
+        bail!("verification found problems")
+    }
+}

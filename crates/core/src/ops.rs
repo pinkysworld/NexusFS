@@ -18,6 +18,14 @@ use crate::state::CoreState;
 /// Guard against a pathological tree walking forever.
 const MAX_WALK_ENTRIES: usize = 100_000;
 
+/// Object hashes an operation introduces, for the record in its proof.
+fn changed_hashes(kind: &FsOpKind) -> Vec<nexusfs_proto::Hash> {
+    match kind {
+        FsOpKind::Write { chunks, .. } => chunks.iter().map(|c| c.hash).collect(),
+        _ => Vec::new(),
+    }
+}
+
 /// A single entry produced by [`CoreState::walk`].
 #[derive(Debug, Clone)]
 pub struct WalkEntry {
@@ -40,11 +48,37 @@ impl CoreState {
     /// arrive later. A local caller has no such excuse: if its preconditions are
     /// unmet it asked for something impossible and should be told so.
     pub fn apply_local(&self, identity: &Identity, kind: FsOpKind, now: u64) -> Result<FsOp> {
-        let op = self.make_op(identity, kind, now)?;
-        match self.apply_op(&op)? {
-            ApplyOutcome::Applied | ApplyOutcome::AlreadyApplied => Ok(op),
+        if !self.proofs.generates() {
+            let op = self.make_op(identity, kind, now)?;
+            return match self.apply_op(&op)? {
+                ApplyOutcome::Applied | ApplyOutcome::AlreadyApplied => Ok(op),
+                ApplyOutcome::Pending(reason) => bail!("operation cannot be applied: {reason}"),
+            };
+        }
+
+        // Producing evidence needs the resulting state root, which only exists after
+        // the operation is applied — but the signature has to cover the evidence. So
+        // apply once to learn the outcome, then re-sign the operation with its proof
+        // attached and record that version. The second apply is a no-op against state
+        // because the operation id is already marked applied; it exists to replace the
+        // stored copy with the one whose signature covers the proof.
+        let old_root = self.begin_proof()?;
+        let provisional = self.make_op(identity, kind.clone(), now)?;
+
+        match self.apply_op_unproven(&provisional)? {
+            ApplyOutcome::Applied | ApplyOutcome::AlreadyApplied => {}
             ApplyOutcome::Pending(reason) => bail!("operation cannot be applied: {reason}"),
         }
+
+        let changed = changed_hashes(&kind);
+        let bundle = self.finish_proof(old_root, changed)?;
+
+        let mut op = provisional;
+        op.proof = Some(bundle);
+        op.sig = nexusfs_crypto::sign(identity.signing_key(), &op.signing_bytes()?);
+        self.append_op(&op)?;
+
+        Ok(op)
     }
 
     /// Create `path` and any missing parents, returning the directory's inode.
@@ -117,8 +151,10 @@ impl CoreState {
             }
         };
 
-        // Chunks must be in the store before the write is applied, or it parks.
-        let chunks = self.store_chunks(data)?;
+        // Chunks must be in the store before the write is applied, or it parks. The
+        // key material returned here rides along in the operation so that whoever
+        // applies it records the same encryption state.
+        let (chunks, encryption) = self.store_content(data)?;
         self.apply_local(
             identity,
             FsOpKind::Write {
@@ -126,6 +162,7 @@ impl CoreState {
                 offset: 0,
                 chunks,
                 new_size: data.len() as u64,
+                encryption: encryption.map(|e| e.sealed_key),
             },
             now,
         )?;

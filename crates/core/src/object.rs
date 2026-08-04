@@ -16,6 +16,17 @@ pub struct ObjectHeader {
     pub version: u16,
 }
 
+/// Key material for an encrypted file, stored with the file itself.
+///
+/// Travelling inside the `FileNode` means the key replicates with the content and
+/// needs no side channel — a node holding the repository key can read a file the
+/// moment it arrives.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileEncryption {
+    /// The file key, sealed with the repository key.
+    pub sealed_key: Vec<u8>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileNode {
     pub header: ObjectHeader,
@@ -28,6 +39,15 @@ pub struct FileNode {
     pub gid: u32,
     pub mtime_unix_ms: u64,
     pub ctime_unix_ms: u64,
+
+    /// Present when the chunks hold ciphertext.
+    ///
+    /// `ChunkRef::hash` always names the bytes as stored, so a peer can verify a
+    /// transfer whether or not it can decrypt. `len` is likewise the stored length,
+    /// which for an encrypted chunk includes the AEAD tag; `size` above is the
+    /// plaintext length.
+    #[serde(default)]
+    pub encryption: Option<FileEncryption>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]

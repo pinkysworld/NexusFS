@@ -291,3 +291,53 @@ async fn content_that_does_not_match_its_hash_is_discarded() {
         "unverified content must not become readable"
     );
 }
+
+// --- encryption over the wire ------------------------------------------------
+
+fn encrypted_node(device: u128, seed: u8, repo_key: [u8; 32]) -> Node {
+    let n = node(device, seed, true);
+    Node {
+        ctx: nexusfs_net::session::SessionCtx {
+            core: n.ctx.core.clone().with_encryption(std::sync::Arc::new(
+                nexusfs_crypto::RepoCipher::new(repo_key),
+            )),
+            ..n.ctx
+        },
+    }
+}
+
+#[tokio::test]
+async fn encrypted_content_replicates_to_a_peer_sharing_the_key() {
+    // The end-to-end M4 claim: at-rest encryption must not break replication.
+    let a = encrypted_node(1, 1, [42u8; 32]);
+    let b = encrypted_node(2, 2, [42u8; 32]);
+
+    a.write("/vault/secret.txt", "classified");
+    pull(&b, &a).await.unwrap();
+
+    assert_eq!(b.read("/vault/secret.txt"), "classified");
+    assert_eq!(a.state_root(), b.state_root());
+}
+
+#[tokio::test]
+async fn a_peer_without_the_repository_key_replicates_but_cannot_read() {
+    // Chunks are named by ciphertext hash, so verification succeeds without the key.
+    // The content simply stays unreadable — which is the point of encrypting it.
+    let a = encrypted_node(1, 1, [42u8; 32]);
+    let b = encrypted_node(2, 2, [99u8; 32]);
+
+    a.write("/vault/secret.txt", "classified");
+    let outcome = pull(&b, &a).await.unwrap();
+
+    assert!(outcome.ops_received > 0, "operations should still transfer");
+    assert!(outcome.blobs_received > 0, "content should still transfer");
+    assert_eq!(
+        a.state_root(),
+        b.state_root(),
+        "structure converges even without the key"
+    );
+    assert!(
+        b.ctx.core.read_file_path("/vault/secret.txt").is_err(),
+        "content must not be readable with the wrong repository key"
+    );
+}

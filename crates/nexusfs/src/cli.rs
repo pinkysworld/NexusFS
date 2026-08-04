@@ -67,6 +67,12 @@ pub enum Command {
         path: String,
     },
 
+    /// Audit the repository: signatures, proofs, and readability of every file.
+    Verify {
+        #[arg(long)]
+        config: PathBuf,
+    },
+
     /// Move or rename an entry.
     Mv {
         #[arg(long)]

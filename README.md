@@ -5,12 +5,13 @@
 A Rust workspace building toward a verifiable, offline-first distributed filesystem in a
 single binary.
 
-> **Status — milestones M0–M3 of 8 complete.** Files round-trip through a signed
+> **Status — milestones M0–M4 of 8 complete.** Files round-trip through a signed
 > operation log applied to CRDT-backed namespace state, an S3-compatible facade exposes
-> that state over HTTP, and **two nodes converge over QUIC** with every operation and
-> chunk verified before it is accepted. Encryption at rest, proof enforcement, the
-> POSIX/FUSE facade, energy-aware scheduling and ZK proofs are **not implemented yet**.
-> See [`documentation/current-status.md`](documentation/current-status.md).
+> that state over HTTP, **two nodes converge over QUIC** with every operation and chunk
+> verified before it is accepted, and **content can be encrypted at rest** while still
+> replicating. The POSIX/FUSE facade, energy-aware scheduling and ZK proofs are **not
+> implemented yet**. See
+> [`documentation/current-status.md`](documentation/current-status.md).
 
 ## Try it in your browser
 
@@ -69,7 +70,7 @@ cargo run -p nexusfs -- cat --config ./nexusfs.toml /docs/a.txt
 cargo run -p nexusfs -- status --config ./nexusfs.toml
 ```
 
-Commands: `mkdir [-p]`, `put`, `cat`, `ls`, `rm`, `mv`, `status`, `daemon`.
+Commands: `mkdir [-p]`, `put`, `cat`, `ls`, `rm`, `mv`, `status`, `verify`, `daemon`.
 
 Run the daemon for the admin console on <http://127.0.0.1:7070>:
 
@@ -103,6 +104,47 @@ same apply path local writes use.
 Peer identity is an ed25519 key pinned on first use — TLS provides transport encryption
 only, and certificates are not the trust anchor. A device presenting a different key
 than the one pinned is refused. Set `net.tofu = false` to require explicit enrolment.
+
+---
+
+## Encryption and proofs
+
+Turn both on in the config:
+
+```toml
+[security]
+encrypt_at_rest = true
+proof_mode = "transparent"   # or "required" to reject unproven operations
+```
+
+Chunk content is then encrypted with XChaCha20-Poly1305 before it reaches disk. Each
+write mints a fresh file key, sealed with a repository key kept beside the device
+identity (`repo.key`, written owner-only) and carried inside the file itself.
+
+Chunks stay addressed by the hash of the bytes **as stored** — the ciphertext. That is
+what keeps replication verifiable: a peer checks the hash before accepting content and
+must be able to do so without any key. A peer with a different repository key still
+converges on structure and still verifies transfers; it simply cannot read the content.
+
+With proofs on, every local operation carries a bundle recording the state root before
+it, the state root after it, and the objects it introduced — signed along with the
+operation, so the author cannot later claim a different transition. Malformed bundles
+are rejected deterministically on receipt.
+
+Audit a repository at any time:
+
+```bash
+cargo run -p nexusfs -- verify --config ./nexusfs.toml
+```
+
+That checks every signature and proof, and reads every file back — so missing chunks,
+wrong keys and tampered ciphertext all surface here. It exits non-zero on failure, so it
+works as a cron or CI check. The same report is served at `/api/security`.
+
+**Limits worth knowing.** Replicas share one repository key, so this protects the disk
+and the wire, not one peer from another. File names, directory structure and file sizes
+are not encrypted. `zk_commit` and `zk_full` are accepted as config values but are not
+implemented, and behave as `none` rather than pretending to prove anything.
 
 ---
 

@@ -15,17 +15,24 @@ It is intentionally biased toward execution order, not just feature categories.
 
 ## Recently Completed
 
-The entire former `Now` band — the local state machine, replay safety, conflict handling
-and admin observability — landed with milestone M1. See `./current-status.md`.
+Milestones M0 through M4 are done: the local state machine, the S3 facade, QUIC
+replication with verified remote apply, and encryption at rest with transparent proofs.
+See `./current-status.md`.
 
 ## Now
 
-### Encryption And Proofs (M4)
+### Energy-Aware Scheduling (M5)
 
-- Encrypt chunk bytes in the live write path.
-- Implement `Envelope::open` and store per-file key envelopes.
-- Attach transparent proof bundles to new operations automatically.
-- Verify proof bundles on receipt and reject malformed ones.
+- Sample battery, temperature, CPU and storage telemetry.
+- Persist the most recent telemetry snapshot.
+- Make the replication loop consult the scheduler before transferring.
+- Surface scheduling decisions in the admin console.
+
+### Encryption Follow-Ups
+
+- Per-recipient key envelopes, so replicas need not share one repository key.
+- Encrypt file names and directory structure, which are currently in the clear.
+- Key rotation and re-encryption of existing content.
 
 ### Replication Follow-Ups
 
@@ -43,13 +50,6 @@ and admin observability — landed with milestone M1. See `./current-status.md`.
 
 ## Later
 
-### Encryption And Proof Integration
-
-- Encrypt chunk bytes in the live write path.
-- Store and retrieve key envelopes in real file flows.
-- Attach transparent proof bundles automatically for newly created operations.
-- Validate proof bundles on receipt and reject malformed ones.
-
 ### Performance
 
 - Batch storage writes. `SledStore` flushes on every put, costing an fsync per chunk and
@@ -58,17 +58,13 @@ and admin observability — landed with milestone M1. See `./current-status.md`.
   path component.
 - Rebuild snapshots incrementally instead of walking the whole tree on every apply.
 
-### Energy And Resource Management
+### Storage Maintenance
 
-- Sample battery, temperature, CPU, and storage telemetry.
-- Persist the most recent telemetry snapshot.
-- Make replication respect the scheduler.
 - Add compaction and cleanup policies, including garbage collection of unreferenced
   inodes and blobs.
 
 ### Operations And Maintenance
 
-- Add `verify`-style commands for repository integrity.
 - Add migration tooling for future schema changes.
 - Improve trust and peer enrollment flows.
 - Add better structured logs and operator diagnostics.
@@ -104,12 +100,9 @@ and admin observability — landed with milestone M1. See `./current-status.md`.
 
 The most effective execution order right now is:
 
-1. Bring up oplog replication between two nodes.
-2. Add blob transfer and verified remote apply.
-3. Integrate encryption and transparent proofs.
-4. Add energy-aware scheduling.
-5. Harden operations and maintenance tooling.
-6. Start ZK-specific work.
+1. Wire energy telemetry and the scheduler into background work (M5).
+2. Harden operations: compaction, garbage collection, migration tooling (M6).
+3. Start ZK-specific work (M7).
 
 ## Definition Of “Ready To Leave Backlog”
 

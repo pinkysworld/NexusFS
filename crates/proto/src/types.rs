@@ -24,8 +24,17 @@ pub struct OpId {
 /// the oplog alone, before it has fetched any of the referenced blobs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChunkRef {
+    /// Hash of the bytes as stored, so a peer can verify a transfer without holding
+    /// any key. For encrypted content this names the ciphertext.
     pub hash: Hash,
+    /// Length of the bytes as stored. Includes the AEAD tag when encrypted.
     pub len: u32,
+    /// Length of the content this chunk represents once decrypted. Equal to `len` for
+    /// plaintext. Kept separate because conflating the two silently misplaces every
+    /// encrypted write: the tag makes stored length exceed content length.
+    #[serde(default)]
+    pub plain_len: u32,
+    /// Offset of this chunk within the file's plaintext.
     pub offset: u64,
 }
 

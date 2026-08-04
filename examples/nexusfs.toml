@@ -30,8 +30,15 @@ enabled = false
 mountpoint = "/mnt/nexus"
 
 [security]
+# Encrypt chunk content before it is written. The repository key is created in
+# data_dir/repo.key on first use; back it up, because without it the content is
+# unrecoverable. Replicas need the same key to read each other's files.
 encrypt_at_rest = false
-proof_mode = "transparent" # none|transparent|zk_commit|zk_full
+# none | transparent | required
+#   transparent: attach signed evidence to local operations, reject malformed evidence
+#   required:    as above, and refuse operations that carry no proof at all
+# zk_commit and zk_full are accepted but unimplemented, and behave as none.
+proof_mode = "transparent"
 
 [energy]
 enabled = true

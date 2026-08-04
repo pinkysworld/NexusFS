@@ -84,13 +84,17 @@ pub fn rename(old_parent: u128, old_name: &str, new_parent: u128, new_name: &str
 }
 
 /// Chunk `data` into `core`'s blob store and return a whole-file Write op kind.
+///
+/// Uses `store_content`, so the op carries key material whenever the node encrypts.
 pub fn write_all(core: &CoreState, inode: u128, data: &[u8]) -> FsOpKind {
-    let chunks: Vec<ChunkRef> = core.store_chunks(data).unwrap();
+    let (chunks, encryption) = core.store_content(data).unwrap();
+    let _: &Vec<ChunkRef> = &chunks;
     FsOpKind::Write {
         inode,
         offset: 0,
         chunks,
         new_size: data.len() as u64,
+        encryption: encryption.map(|e| e.sealed_key),
     }
 }
 
