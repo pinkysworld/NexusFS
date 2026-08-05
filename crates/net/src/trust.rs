@@ -5,19 +5,14 @@
 //! you synced with yesterday. Identity here is the ed25519 key that signs the Hello,
 //! pinned per device on first contact.
 
+//! The pinned keys themselves live in `core`, so an operator can enrol and revoke on a
+//! build without networking, and before any connection is attempted. This module owns
+//! only the decision.
+
 use anyhow::{bail, Result};
 
 use nexusfs_core::CoreState;
 use nexusfs_proto::DeviceId;
-
-const CF_META: &str = "meta";
-const PEER_PREFIX: &[u8] = b"peer/key/";
-
-fn peer_key(device: DeviceId) -> Vec<u8> {
-    let mut k = PEER_PREFIX.to_vec();
-    k.extend_from_slice(&device.0.to_be_bytes());
-    k
-}
 
 /// Trust-on-first-use policy for peer public keys.
 #[derive(Clone, Copy, Debug)]
@@ -37,17 +32,15 @@ pub fn authorize(
     device: DeviceId,
     pubkey: &[u8; 32],
 ) -> Result<()> {
-    let stored = core.stores.kv.get_kv(CF_META, &peer_key(device))?;
-
-    match stored {
-        Some(known) if known == pubkey => Ok(()),
+    match core.peer_key(device)? {
+        Some(known) if known == *pubkey => Ok(()),
         Some(_) => bail!(
             "device {:x} presented a different key than the one pinned; \
              refusing to sync (re-enrol the peer if this was a deliberate rotation)",
             device.0
         ),
         None if policy.tofu => {
-            core.stores.kv.put_kv(CF_META, &peer_key(device), pubkey)?;
+            core.enrol_peer(device, pubkey, false)?;
             Ok(())
         }
         None => bail!(
@@ -59,16 +52,9 @@ pub fn authorize(
 
 /// Every peer key pinned so far.
 pub fn known_peers(core: &CoreState) -> Result<Vec<(DeviceId, [u8; 32])>> {
-    let mut out = Vec::new();
-    for (k, v) in core.stores.kv.scan_prefix(CF_META, PEER_PREFIX)? {
-        if k.len() != PEER_PREFIX.len() + 16 || v.len() != 32 {
-            continue;
-        }
-        let mut id = [0u8; 16];
-        id.copy_from_slice(&k[PEER_PREFIX.len()..]);
-        let mut key = [0u8; 32];
-        key.copy_from_slice(&v);
-        out.push((DeviceId(u128::from_be_bytes(id)), key));
-    }
-    Ok(out)
+    Ok(core
+        .enrolled_peers()?
+        .into_iter()
+        .map(|p| (p.device_id, p.pubkey))
+        .collect())
 }

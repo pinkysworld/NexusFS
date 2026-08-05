@@ -12,6 +12,13 @@ pub trait BlobStore: Send + Sync {
 
     /// `(blob count, total bytes)` for capacity reporting.
     fn stats(&self) -> Result<(usize, u64)>;
+
+    /// Every stored blob as `(hash, stored length)`.
+    ///
+    /// Hashes and sizes only, never bodies: garbage collection has to walk the whole
+    /// store, and materializing every blob to decide what to delete would need as much
+    /// memory as the repository occupies on disk.
+    fn list(&self) -> Result<Vec<(Hash, u64)>>;
 }
 
 pub trait KvStore: Send + Sync {

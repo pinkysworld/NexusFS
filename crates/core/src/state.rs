@@ -18,7 +18,7 @@ use crate::object::{
 };
 use nexusfs_crypto::RepoCipher;
 
-pub(crate) const CF_META: &str = "meta";
+pub const CF_META: &str = "meta";
 pub(crate) const CF_OPLOG: &str = "oplog";
 
 const KEY_HEAD_CURRENT: &[u8] = b"head/current";

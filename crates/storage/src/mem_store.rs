@@ -60,6 +60,16 @@ impl BlobStore for MemStore {
         Ok(())
     }
 
+    fn list(&self) -> Result<Vec<(Hash, u64)>> {
+        Ok(self
+            .blobs
+            .lock()
+            .expect("blob map poisoned")
+            .iter()
+            .map(|(h, v)| (*h, v.len() as u64))
+            .collect())
+    }
+
     fn stats(&self) -> Result<(usize, u64)> {
         let blobs = self.blobs.lock().expect("blob map poisoned");
         Ok((blobs.len(), blobs.values().map(|v| v.len() as u64).sum()))

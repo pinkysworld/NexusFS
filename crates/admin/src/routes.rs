@@ -43,6 +43,7 @@ pub fn router(state: AdminState) -> Router {
         .route("/api/oplog/recent", get(oplog_recent))
         .route("/api/peers", get(peers))
         .route("/api/energy", get(energy))
+        .route("/api/storage/gc", get(storage_gc))
         .route("/api/security", get(security))
         .with_state(state)
 }
@@ -320,6 +321,22 @@ struct PeersResp {
     /// False when replication is not compiled in or failed to start.
     enabled: bool,
     peers: Vec<crate::PeerView>,
+}
+
+/// Survey unreachable storage.
+///
+/// Read-only on purpose. The daemon is writing while this serves, so a blob created
+/// between the mark and a sweep would look like garbage — collection belongs in
+/// `nexusfs gc`, which holds the store exclusively.
+async fn storage_gc(
+    State(st): State<AdminState>,
+    headers: HeaderMap,
+) -> Result<Json<nexusfs_core::GcReport>, (StatusCode, String)> {
+    require_token(&headers, &st.token).map_err(|c| (c, "unauthorized".into()))?;
+    st.core
+        .collect_garbage(true)
+        .map(Json)
+        .map_err(server_error)
 }
 
 /// The current power reading and the replication budget it produced.

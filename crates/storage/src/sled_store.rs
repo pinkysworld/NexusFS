@@ -52,6 +52,20 @@ impl BlobStore for SledStore {
         Ok(())
     }
 
+    fn list(&self) -> Result<Vec<(Hash, u64)>> {
+        let t = self.blobs_tree()?;
+        let mut out = Vec::new();
+        for kv in t.iter() {
+            let (k, v) = kv?;
+            if k.len() == 32 {
+                let mut hash = [0u8; 32];
+                hash.copy_from_slice(&k);
+                out.push((hash, v.len() as u64));
+            }
+        }
+        Ok(out)
+    }
+
     fn stats(&self) -> Result<(usize, u64)> {
         let t = self.blobs_tree()?;
         let mut count = 0usize;

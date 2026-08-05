@@ -75,7 +75,7 @@ impl CoreState {
 
     /// Store the `DirNode` for `inode` and every directory beneath it, recording each
     /// inode's current object hash. Returns the directory's own hash.
-    fn materialize_tree(
+    pub(crate) fn materialize_tree(
         &self,
         inode: u128,
         inode_map: &mut BTreeMap<u128, Hash>,

@@ -73,11 +73,72 @@ pub enum Command {
         config: PathBuf,
     },
 
+    /// Report unreachable storage, and optionally reclaim it.
+    ///
+    /// Surveys by default. Deletion needs `--apply`, because a mistake here removes
+    /// data rather than merely reporting it.
+    Gc {
+        #[arg(long)]
+        config: PathBuf,
+        /// Actually delete the unreachable blobs.
+        #[arg(long)]
+        apply: bool,
+    },
+
+    /// Upgrade the on-disk format to what this build expects.
+    ///
+    /// Back the data directory up first: a migration rewrites records in place.
+    Migrate {
+        #[arg(long)]
+        config: PathBuf,
+    },
+
+    /// Manage which peer devices this node will accept operations from.
+    Peer {
+        #[command(subcommand)]
+        action: PeerAction,
+    },
+
     /// Move or rename an entry.
     Mv {
         #[arg(long)]
         config: PathBuf,
         from: String,
         to: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum PeerAction {
+    /// Show this node's own device id and public key, for enrolling it elsewhere.
+    Identity {
+        #[arg(long)]
+        config: PathBuf,
+    },
+
+    /// List enrolled peers.
+    List {
+        #[arg(long)]
+        config: PathBuf,
+    },
+
+    /// Enrol a peer's key ahead of first contact, so `tofu` can stay off.
+    Add {
+        #[arg(long)]
+        config: PathBuf,
+        /// Device id in hex, as printed by `peer identity`.
+        device: String,
+        /// ed25519 public key in hex (64 characters).
+        pubkey: String,
+        /// Replace an existing, different key. Required for a deliberate rotation.
+        #[arg(long)]
+        rotate: bool,
+    },
+
+    /// Forget a peer's pinned key.
+    Remove {
+        #[arg(long)]
+        config: PathBuf,
+        device: String,
     },
 }

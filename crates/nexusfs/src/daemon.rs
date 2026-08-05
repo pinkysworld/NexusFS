@@ -166,6 +166,7 @@ impl nexusfs_admin::PeerSource for PeerBridge {
 pub async fn run_status(config_path: PathBuf) -> Result<()> {
     let cfg = Config::load(&config_path)?;
     let (core, _identity, admin_token) = open_core(&cfg)?;
+    core.require_current_format()?;
     core.bootstrap_if_needed()?;
 
     let (blob_count, blob_bytes) = core.blob_stats()?;
@@ -205,6 +206,10 @@ pub async fn run_status(config_path: PathBuf) -> Result<()> {
 pub async fn run_daemon(config_path: PathBuf) -> Result<()> {
     let cfg = Config::load(&config_path)?;
     let (core, identity, admin_token) = open_core(&cfg)?;
+
+    // Before anything is written: an old or newer store must not be operated on by a
+    // build that does not match it.
+    core.require_current_format()?;
 
     // Bootstrap local repo if empty.
     core.bootstrap_if_needed()?;

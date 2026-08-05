@@ -64,6 +64,16 @@ fn chunks_form_whole_file(chunks: &[ChunkRef], new_size: u64) -> bool {
     expected == new_size
 }
 
+/// Whether `op` could still win `current`, using the register's own ordering.
+///
+/// Mirrors `LwwReg::merge`, which keeps the incoming value only on a strictly greater
+/// key. Anything at or below the current key is already superseded, and applying it
+/// would leave state untouched.
+fn write_can_win<T>(current: &LwwReg<T>, op: &FsOp) -> bool {
+    (op.time_unix_ms, op.id.device_id.0, op.id.counter)
+        > (current.ts, current.writer_id, current.seq)
+}
+
 impl CoreState {
     // ---- op construction and verification -------------------------------------
 
@@ -353,6 +363,19 @@ impl CoreState {
         };
         if record.kind != EntryType::File {
             bail!("inode {inode:x} is not a file");
+        }
+
+        // A write that cannot win the content register contributes nothing to state, so
+        // there is no reason to demand its bytes. Checked before availability, because
+        // otherwise an overwritten version parks forever waiting for content no reader
+        // will ever see — and a peer that has since collected that content as garbage
+        // could never satisfy the request, leaving the two nodes permanently mid-sync
+        // despite agreeing on every byte of live state.
+        //
+        // The comparison is over the same `(ts, writer_id, seq)` key `merge` uses, so
+        // every replica reaches the same verdict without coordinating.
+        if !write_can_win(&record.content, op) {
+            return Ok(Mutation::Done);
         }
 
         // Both paths below require the incoming chunks to be present locally. Applying
