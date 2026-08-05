@@ -147,13 +147,12 @@ fn platform_sample() -> Telemetry {
                         t.power = PowerSource::Battery;
                     }
                 }
-                "Mains" | "USB" => {
+                "Mains" | "USB"
                     if fs::read_to_string(path.join("online"))
                         .map(|s| s.trim() == "1")
-                        .unwrap_or(false)
-                    {
-                        mains_online = true;
-                    }
+                        .unwrap_or(false) =>
+                {
+                    mains_online = true;
                 }
                 _ => {}
             }
