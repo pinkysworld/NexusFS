@@ -41,6 +41,25 @@ encrypt_at_rest = false
 proof_mode = "transparent"
 
 [energy]
+# Adapt replication to the device. Before each sync pass the daemon samples power
+# source, charge, temperature, load and link cost, then decides what it may transfer.
+#
+# The grading keeps operations flowing and rations content, because an operation is a
+# few hundred bytes and the content it names can be megabytes. A constrained device that
+# still takes every operation knows what exists and where, and can fetch a specific file
+# on demand — a much better degraded state than falling behind entirely.
+#
+#   on mains / power unknown  -> unlimited
+#   battery above ~2x low     -> unlimited
+#   battery in the band above -> content capped per pass
+#   battery <= battery_low    -> operations only, content deferred
+#   battery <= low/4          -> no sync at all
+#   temp >= temp_high_c       -> operations only  (overrides battery)
+#   metered link              -> operations only  (overrides battery)
+#
+# An unreadable sensor reports "unknown" and never constrains: a server with no battery
+# is not a device at 0%. Set enabled = false to remove every limit while still reporting
+# the reading at /api/energy.
 enabled = true
 battery_low_pct = 20
 temp_high_c = 70

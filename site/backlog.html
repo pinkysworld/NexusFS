@@ -37,9 +37,10 @@
             <p class="eyebrow">Backlog</p>
             <h1>Prioritized by what unlocks the next milestone.</h1>
             <p class="lede">
-              The backlog is grouped by execution order, not just by subsystem. The
-              immediate focus is finishing the real local state machine, then carrying
-              that same logic into replication and user-facing surfaces.
+              The backlog is grouped by execution order, not just by subsystem. With the
+              local core, the S3 facade, verified replication, encryption and
+              energy-aware scheduling all in place, the focus moves to operational
+              hardening and closing the gaps those milestones opened.
             </p>
           </div>
         </section>
@@ -48,15 +49,15 @@
           <div class="card-grid">
             <article class="feature-card">
               <h3>Now</h3>
-              <p>Complete persistent local namespace state and full operation application.</p>
+              <p>Close the energy follow-ups: on-demand fetch of deferred content, and metered-link detection.</p>
             </article>
             <article class="feature-card">
               <h3>Next</h3>
-              <p>Bring up real replication and the first production-meaningful facade.</p>
+              <p>Operational hardening — compaction, garbage collection, and migration tooling.</p>
             </article>
             <article class="feature-card">
               <h3>Later</h3>
-              <p>Add encryption, proofs, energy-aware behavior, and operator tooling.</p>
+              <p>The POSIX facade, per-recipient key envelopes, and push notification of new operations.</p>
             </article>
             <article class="feature-card">
               <h3>Research</h3>
@@ -69,19 +70,19 @@
           <div class="content-panel">
             <h2>Highest-priority backlog</h2>
             <ul class="list-block">
-              <li>Replace placeholder apply logic with real CRDT-backed state transitions</li>
-              <li>Persist actual inode and directory mappings</li>
-              <li>Build snapshots from live namespace state</li>
-              <li>Expand admin visibility into local storage and applied state</li>
+              <li>Fetch deferred content on demand, so a power-constrained node can still serve a file when asked</li>
+              <li>Detect metered links per platform, so that scheduler rule can fire in the field</li>
+              <li>Push notification of new operations, so peers do not wait for the poll interval</li>
+              <li>Per-recipient key envelopes, so replicas need not share one repository key</li>
             </ul>
           </div>
           <div class="content-panel">
             <h2>Next unlocks</h2>
             <ul class="list-block">
-              <li>Implement oplog synchronization between peers</li>
-              <li>Add blob transfer and verified remote apply</li>
-              <li>Choose and ship the first real external facade</li>
-              <li>Integrate encryption and transparent proof enforcement</li>
+              <li>Batch storage writes — sled currently fsyncs on every chunk</li>
+              <li>Garbage-collect unreferenced inodes and blobs</li>
+              <li>Prioritise which deferred content to fetch first under a capped budget</li>
+              <li>Implement the POSIX/FUSE facade</li>
             </ul>
           </div>
         </section>

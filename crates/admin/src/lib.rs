@@ -31,7 +31,42 @@ pub struct PeerView {
     pub last_error: Option<String>,
     pub ops_received: usize,
     pub blobs_received: usize,
+    pub content_bytes: u64,
+    /// The last pass stopped short of fetching everything because of the sync budget.
+    pub content_deferred: bool,
     pub syncs: u64,
+}
+
+/// Supplies the energy reading and the replication budget derived from it.
+///
+/// Same trait-object arrangement as `PeerSource`, and for the same reason: the console
+/// should be able to show why replication is holding back without the admin crate
+/// knowing how that decision is made.
+pub trait EnergySource: Send + Sync {
+    fn energy(&self) -> EnergyView;
+}
+
+/// The current power situation and what replication is allowed to do about it.
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct EnergyView {
+    /// False when energy-aware scheduling is switched off in the config.
+    pub enabled: bool,
+    /// "mains" | "battery" | "unknown".
+    pub power: String,
+    pub battery_pct: Option<u8>,
+    pub temp_c: Option<i16>,
+    pub cpu_load: Option<f32>,
+    /// "unmetered" | "metered" | "unknown".
+    pub link: String,
+    pub sampled_unix_ms: u64,
+    /// Contact peers at all.
+    pub sync: bool,
+    /// Transfer content, not just operations.
+    pub content: bool,
+    /// `None` means uncapped.
+    pub max_content_bytes: Option<u64>,
+    pub interval_scale: f32,
+    pub reason: String,
 }
 
 #[derive(Clone)]
@@ -40,6 +75,8 @@ pub struct AdminState {
     pub token: String,
     /// `None` when replication is not compiled in or not running.
     pub peers: Option<Arc<dyn PeerSource>>,
+    /// `None` when the daemon is not sampling energy.
+    pub energy: Option<Arc<dyn EnergySource>>,
 }
 
 pub async fn serve(bind: SocketAddr, state: AdminState) -> Result<()> {

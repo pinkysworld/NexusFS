@@ -5,13 +5,14 @@
 A Rust workspace building toward a verifiable, offline-first distributed filesystem in a
 single binary.
 
-> **Status — milestones M0–M4 of 8 complete.** Files round-trip through a signed
+> **Status — milestones M0–M5 of 8 complete.** Files round-trip through a signed
 > operation log applied to CRDT-backed namespace state, an S3-compatible facade exposes
 > that state over HTTP, **two nodes converge over QUIC** with every operation and chunk
-> verified before it is accepted, and **content can be encrypted at rest** while still
-> replicating. The POSIX/FUSE facade, energy-aware scheduling and ZK proofs are **not
-> implemented yet**. See
-> [`documentation/current-status.md`](documentation/current-status.md).
+> verified before it is accepted, **content can be encrypted at rest** while still
+> replicating, and **replication now adapts to the device's power situation** — deferring
+> content while still tracking the namespace when the battery is low, the machine is hot,
+> or the link is metered. The POSIX/FUSE facade and ZK proofs are **not implemented
+> yet**. See [`documentation/current-status.md`](documentation/current-status.md).
 
 ## Try it in your browser
 
@@ -148,6 +149,61 @@ implemented, and behave as `none` rather than pretending to prove anything.
 
 ---
 
+## Energy-aware replication
+
+```toml
+[energy]
+enabled = true
+battery_low_pct = 20
+temp_high_c = 70
+```
+
+Before each sync pass the daemon samples the device — power source, charge, temperature,
+CPU load, link cost — and decides how much replication may do.
+
+The decision rests on one observation: **operations are tiny and content is large.** An
+operation is a few hundred bytes describing an intent; the content it refers to can be
+megabytes. So the interesting throttle is not "sync or don't" but *keep the namespace
+converged and defer the bytes*. A device that has taken every operation but no content
+still knows what exists, where, and at what version — it can list directories, answer
+"has this changed", and fetch any particular file the moment someone wants it. That is a
+far better degraded state than falling behind entirely, and it costs almost nothing.
+
+| Condition | Operations | Content |
+| --- | --- | --- |
+| On mains, or power source unknown | yes | unlimited |
+| Battery above ~2× the low threshold | yes | unlimited |
+| Battery in the conserving band | yes | capped per pass |
+| Battery at or below `battery_low_pct` | yes | deferred |
+| Battery at or below the critical threshold | no | no |
+| Temperature at or above `temp_high_c` | yes | deferred |
+| Link is metered | yes | deferred |
+
+Heat and metered links override the battery grade rather than folding into it: no amount
+of remaining charge makes cooking the device acceptable, and a metered link costs money
+per byte regardless of power.
+
+**Unknown never means constrained.** A server with no battery sensor reports `unknown`
+and runs unthrottled. Treating a missing sensor as an empty battery would make an
+unconstrained machine throttle itself permanently — the obvious failure mode of a naive
+implementation, and the reason every reading is a three-state enum rather than a `bool`.
+
+Inspect the live decision, including why it was made:
+
+```bash
+curl -H "x-nexusfs-token: $TOKEN" http://127.0.0.1:7070/api/energy
+```
+
+```json
+{"enabled":true,"power":"battery","battery_pct":14,"temp_c":null,
+ "link":"unknown","sync":true,"content":false,"max_content_bytes":0,
+ "interval_scale":2.0,"reason":"battery 14% is at or below the low threshold 20%"}
+```
+
+Set `enabled = false` to remove every limit while keeping the reading visible.
+
+---
+
 ## S3-compatible API
 
 Set `s3.enabled = true` in the config and run the daemon with the `s3` feature. Objects
@@ -273,7 +329,7 @@ Public-facing project material:
 - `crates/crdt`       : OR-Map + LWW registers + conflict handling
 - `crates/net`        : QUIC transport, signed handshake, peer manager, sync sessions
 - `crates/admin`      : embedded admin console backend + static UI assets
-- `crates/energy`     : telemetry + baseline scheduler interface
+- `crates/energy`     : device telemetry + the rule-based replication scheduler
 - `crates/privacy`    : padding + cover traffic (stubs)
 - `crates/zk`         : proof traits, transparent proof bundles, ZK placeholders
 - `crates/s3`         : S3-like API surface (stubs)

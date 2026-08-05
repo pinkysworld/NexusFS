@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use nexusfs_core::EntryType;
 
 use crate::assets;
-use crate::AdminState;
+use crate::{AdminState, EnergyView};
 
 /// Very small auth middleware: check `x-nexusfs-token` header.
 /// In production, add mTLS or OAuth flows.
@@ -42,6 +42,7 @@ pub fn router(state: AdminState) -> Router {
         .route("/api/fs/ls", get(fs_ls))
         .route("/api/oplog/recent", get(oplog_recent))
         .route("/api/peers", get(peers))
+        .route("/api/energy", get(energy))
         .route("/api/security", get(security))
         .with_state(state)
 }
@@ -319,6 +320,32 @@ struct PeersResp {
     /// False when replication is not compiled in or failed to start.
     enabled: bool,
     peers: Vec<crate::PeerView>,
+}
+
+/// The current power reading and the replication budget it produced.
+///
+/// `enabled: false` means the daemon is not sampling — not that the device is
+/// unconstrained. The console shows those differently on purpose.
+async fn energy(
+    State(st): State<AdminState>,
+    headers: HeaderMap,
+) -> Result<Json<EnergyView>, (StatusCode, String)> {
+    require_token(&headers, &st.token).map_err(|c| (c, "unauthorized".into()))?;
+
+    Ok(Json(match &st.energy {
+        Some(source) => source.energy(),
+        None => EnergyView {
+            enabled: false,
+            power: "unknown".into(),
+            link: "unknown".into(),
+            sync: true,
+            content: true,
+            max_content_bytes: None,
+            interval_scale: 1.0,
+            reason: "energy-aware scheduling is not running".into(),
+            ..Default::default()
+        },
+    }))
 }
 
 async fn peers(

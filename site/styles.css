@@ -376,6 +376,14 @@ img {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+/* A trailing card that would sit alone on its own row spans the full width instead.
+   Reads as a deliberate summary rather than an orphan, and keeps the grid balanced as
+   sections gain entries. The 4n+1 / 3n+1 selectors track the column count per
+   breakpoint, so each rule lives beside the grid definition it belongs to. */
+.card-grid > *:last-child:nth-child(4n + 1) {
+  grid-column: 1 / -1;
+}
+
 .feature-card,
 .doc-card,
 .content-panel {
@@ -428,6 +436,10 @@ img {
 
 .track-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.track-grid > *:last-child:nth-child(3n + 1) {
+  grid-column: 1 / -1;
 }
 
 .track-card {
@@ -560,6 +572,17 @@ img {
   .research-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  /* Two columns now, so the span rule keys off an odd final card instead. */
+  .card-grid > *:last-child:nth-child(4n + 1),
+  .track-grid > *:last-child:nth-child(3n + 1) {
+    grid-column: auto;
+  }
+
+  .card-grid > *:last-child:nth-child(odd),
+  .track-grid > *:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 720px) {
@@ -585,6 +608,12 @@ img {
   .docs-grid,
   .mini-grid {
     grid-template-columns: 1fr;
+  }
+
+  /* Single column: every card is already full width, so no spanning is needed. */
+  .card-grid > *:last-child,
+  .track-grid > *:last-child {
+    grid-column: auto;
   }
 
   .hero-copy,

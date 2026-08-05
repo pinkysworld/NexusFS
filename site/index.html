@@ -56,12 +56,12 @@
             <div class="panel-orbit"></div>
             <div class="status-card">
               <span class="status-label">Current Baseline</span>
-              <strong>Milestones M0–M4: encrypted, replicated, verifiable</strong>
+              <strong>Milestones M0–M5: encrypted, replicated, power-aware</strong>
               <p>
                 Two nodes converge over QUIC with every operation and chunk verified
                 before it is accepted, content is encrypted at rest without breaking
-                that verification, and operations carry signed evidence of what they
-                changed.
+                that verification, operations carry signed evidence of what they
+                changed, and replication adapts to the device's power and heat.
               </p>
             </div>
             <div class="mini-grid">
@@ -88,7 +88,7 @@
         <section class="stats reveal">
           <div class="stat">
             <span class="stat-label">Milestone</span>
-            <strong>M4 of 8 complete</strong>
+            <strong>M5 of 8 complete</strong>
           </div>
           <div class="stat">
             <span class="stat-label">Hashing</span>
@@ -107,7 +107,7 @@
         <section class="section reveal">
           <div class="section-heading">
             <p class="eyebrow">Design decisions</p>
-            <h2>Four choices that shape everything else</h2>
+            <h2>Five choices that shape everything else</h2>
           </div>
           <div class="card-grid">
             <article class="feature-card">
@@ -142,6 +142,16 @@
                 Signatures are checked before an operation can touch state, and chunk
                 hashes are checked before content is stored. A peer cannot hand you bytes
                 that do not match the hash you asked for.
+              </p>
+            </article>
+            <article class="feature-card">
+              <h3>Under pressure, keep the map and drop the cargo</h3>
+              <p>
+                An operation is a few hundred bytes; the content it names can be
+                megabytes. So a device short on power keeps taking operations and defers
+                the bytes. It still knows what exists, where, and at what version — and
+                fetches any particular file once power returns. Falling behind on content
+                is recoverable; falling behind on the namespace is not.
               </p>
             </article>
           </div>

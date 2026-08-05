@@ -10,7 +10,7 @@ use nexusfs_core::{now_ms, CoreState, Stores};
 use nexusfs_crypto::Identity;
 use nexusfs_net::peers::{accept_loop, sync_once};
 use nexusfs_net::quic;
-use nexusfs_net::session::SessionCtx;
+use nexusfs_net::session::{SessionCtx, SyncLimits};
 use nexusfs_net::trust::TrustPolicy;
 use nexusfs_proto::DeviceId;
 use nexusfs_storage::mem_store::MemStore;
@@ -68,7 +68,7 @@ async fn two_nodes_converge_over_quic() {
     let client_endpoint = quic::endpoint("127.0.0.1:0".parse().unwrap()).unwrap();
     let outcome = tokio::time::timeout(
         Duration::from_secs(30),
-        sync_once(&client_endpoint, addr, &client),
+        sync_once(&client_endpoint, addr, &client, SyncLimits::unlimited()),
     )
     .await
     .expect("sync timed out")
@@ -109,11 +109,15 @@ async fn repeated_syncs_are_idempotent() {
     let serving = tokio::spawn(accept_loop(server_endpoint.clone(), server.clone()));
     let client_endpoint = quic::endpoint("127.0.0.1:0".parse().unwrap()).unwrap();
 
-    sync_once(&client_endpoint, addr, &client).await.unwrap();
+    sync_once(&client_endpoint, addr, &client, SyncLimits::unlimited())
+        .await
+        .unwrap();
     let root_after_first = client.core.compute_state_root().unwrap();
 
     for _ in 0..3 {
-        let again = sync_once(&client_endpoint, addr, &client).await.unwrap();
+        let again = sync_once(&client_endpoint, addr, &client, SyncLimits::unlimited())
+            .await
+            .unwrap();
         assert_eq!(again.ops_received, 0, "nothing new should be offered");
     }
 

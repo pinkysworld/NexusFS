@@ -203,9 +203,18 @@
                 was sent anywhere; both devices lived in this tab.
               </p>
               <p>
-                What does not exist yet is the network layer. Syncing here is a button that
-                hands one device's records to the other in-process. Real peer-to-peer
-                transfer over QUIC is the next milestone.
+                The one thing this page simplifies is the network. Syncing here is a button
+                that hands one device's records to the other in-process. Real nodes do the
+                same thing over QUIC — sending operations first, then requesting only the
+                content those operations turned out to need, checking every signature and
+                every chunk hash before accepting anything.
+              </p>
+              <p>
+                A real node also decides <em>how much</em> to pull. On a low battery, a hot
+                machine, or a metered connection, it takes the operations and defers the
+                content — so it still knows the file exists and where it lives, and fetches
+                the bytes when power allows. That is the same split you saw here between
+                the tree and the file contents.
               </p>
             </div>
             <div class="callout-actions">

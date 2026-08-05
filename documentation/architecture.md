@@ -20,7 +20,7 @@ NexusFS is built as a set of Rust crates that preserve clean boundaries between 
 - `crates/net`: peer transport and replication protocol
 - `crates/crypto`: signing, encryption, and key envelope helpers
 - `crates/admin`: embedded admin HTTP surface and static assets
-- `crates/energy`: telemetry sampling and scheduling decisions
+- `crates/energy`: device telemetry sampling and the replication budget scheduler
 - `crates/privacy`: padding and cover-traffic scaffolding
 - `crates/zk`: transparent proof bundles and future ZK modes
 - `crates/s3`: S3-like API facade

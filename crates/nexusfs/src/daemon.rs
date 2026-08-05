@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 use tracing::info;
@@ -9,6 +9,132 @@ use nexusfs_crypto::Identity;
 use nexusfs_storage::sled_store::SledStore;
 
 use crate::config::Config;
+
+/// Samples the device, asks the scheduler what that permits, and caches the answer.
+///
+/// One instance serves two consumers that must not disagree: replication reads it
+/// through `SyncGate` to decide what to transfer, and the admin console reads it
+/// through `EnergySource` to explain what is happening. Sampling once and caching is
+/// what keeps the console's explanation true of the pass that actually ran — a second
+/// independent sample could report "on mains" next to a throttled sync.
+struct EnergyGate {
+    scheduler: nexusfs_energy::RuleBasedScheduler,
+    enabled: bool,
+    core: CoreState,
+    last: Mutex<(nexusfs_energy::Telemetry, nexusfs_energy::SyncBudget)>,
+}
+
+impl EnergyGate {
+    fn new(cfg: &crate::config::Energy, core: CoreState) -> Self {
+        let thresholds =
+            nexusfs_energy::Thresholds::from_config(cfg.battery_low_pct, cfg.temp_high_c);
+        let scheduler = if cfg.enabled {
+            nexusfs_energy::RuleBasedScheduler::new(thresholds)
+        } else {
+            nexusfs_energy::RuleBasedScheduler::disabled()
+        };
+        Self {
+            scheduler,
+            enabled: cfg.enabled,
+            core,
+            last: Mutex::new((
+                nexusfs_energy::Telemetry::default(),
+                nexusfs_energy::SyncBudget::unlimited(),
+            )),
+        }
+    }
+
+    fn sample(&self) -> (nexusfs_energy::Telemetry, nexusfs_energy::SyncBudget) {
+        use nexusfs_energy::Scheduler as _;
+
+        let telemetry = nexusfs_energy::telemetry::sample();
+        // Backlog size feeds the conserving band: a device with nothing outstanding has
+        // no reason to be capped.
+        let backlog = nexusfs_energy::BacklogView {
+            pending_ops: self.core.pending_count().unwrap_or(0) as u64,
+            missing_chunks: self
+                .core
+                .missing_chunk_hashes()
+                .map(|h| h.len() as u64)
+                .unwrap_or(0),
+        };
+        let budget = self.scheduler.plan(&telemetry, &backlog);
+
+        *self.last.lock().expect("energy gate poisoned") = (telemetry.clone(), budget.clone());
+        (telemetry, budget)
+    }
+
+    /// The reading to report, preferring the one replication last acted on.
+    ///
+    /// Falls back to sampling when that reading is missing or older than
+    /// [`STALE_AFTER_MS`], which is what keeps the console live on a node with
+    /// replication switched off — there, nothing else ever calls `sample`.
+    fn current(&self) -> (nexusfs_energy::Telemetry, nexusfs_energy::SyncBudget) {
+        /// Comfortably longer than any sane sync interval, so a node that *is*
+        /// replicating always reports the decision behind the last pass rather than a
+        /// fresh sample that could contradict it.
+        const STALE_AFTER_MS: u64 = 60_000;
+
+        {
+            let cached = self.last.lock().expect("energy gate poisoned");
+            let age = nexusfs_core::now_ms().saturating_sub(cached.0.sampled_unix_ms);
+            if cached.0.sampled_unix_ms != 0 && age < STALE_AFTER_MS {
+                return cached.clone();
+            }
+        }
+        self.sample()
+    }
+}
+
+#[cfg(feature = "quic")]
+impl nexusfs_net::session::SyncGate for EnergyGate {
+    fn decide(&self) -> nexusfs_net::session::SyncDecision {
+        let (_, budget) = self.sample();
+        nexusfs_net::session::SyncDecision {
+            sync: budget.sync,
+            limits: nexusfs_net::session::SyncLimits {
+                content: budget.content,
+                max_content_bytes: budget.max_content_bytes,
+            },
+            interval_scale: budget.interval_scale,
+            reason: budget.reason,
+        }
+    }
+}
+
+#[cfg(feature = "admin")]
+impl nexusfs_admin::EnergySource for EnergyGate {
+    fn energy(&self) -> nexusfs_admin::EnergyView {
+        use nexusfs_energy::{LinkCost, PowerSource};
+
+        let (t, b) = self.current();
+
+        nexusfs_admin::EnergyView {
+            enabled: self.enabled,
+            power: match t.power {
+                PowerSource::Mains => "mains",
+                PowerSource::Battery => "battery",
+                PowerSource::Unknown => "unknown",
+            }
+            .into(),
+            battery_pct: t.battery_pct,
+            temp_c: t.temp_c,
+            cpu_load: t.cpu_load,
+            link: match t.link {
+                LinkCost::Unmetered => "unmetered",
+                LinkCost::Metered => "metered",
+                LinkCost::Unknown => "unknown",
+            }
+            .into(),
+            sampled_unix_ms: t.sampled_unix_ms,
+            sync: b.sync,
+            content: b.content,
+            max_content_bytes: (b.max_content_bytes != u64::MAX).then_some(b.max_content_bytes),
+            interval_scale: b.interval_scale,
+            reason: b.reason,
+        }
+    }
+}
 
 /// Bridges the replication registry to the admin API without either crate depending
 /// on the other.
@@ -29,6 +155,8 @@ impl nexusfs_admin::PeerSource for PeerBridge {
                 last_error: p.last_error,
                 ops_received: p.ops_received,
                 blobs_received: p.blobs_received,
+                content_bytes: p.content_bytes,
+                content_deferred: p.content_deferred,
                 syncs: p.syncs,
             })
             .collect()
@@ -85,6 +213,12 @@ pub async fn run_daemon(config_path: PathBuf) -> Result<()> {
     #[cfg(feature = "quic")]
     let peer_registry = nexusfs_net::peers::PeerRegistry::new();
 
+    // One gate, two readers: replication acts on it, the console explains it.
+    let energy_gate = Arc::new(EnergyGate::new(&cfg.energy, core.clone()));
+    if !cfg.energy.enabled {
+        info!("energy-aware scheduling is disabled; replication will run unthrottled");
+    }
+
     // Start admin server.
     #[cfg(feature = "admin")]
     {
@@ -100,6 +234,7 @@ pub async fn run_daemon(config_path: PathBuf) -> Result<()> {
             core: Arc::new(core.clone()),
             token: admin_token.clone(),
             peers,
+            energy: Some(energy_gate.clone() as Arc<dyn nexusfs_admin::EnergySource>),
         };
         tokio::spawn(async move {
             if let Err(e) = nexusfs_admin::serve(addr, st).await {
@@ -166,6 +301,7 @@ pub async fn run_daemon(config_path: PathBuf) -> Result<()> {
                     ctx,
                     std::time::Duration::from_secs(cfg.net.sync_interval_secs.max(1)),
                     peer_registry.clone(),
+                    Some(energy_gate.clone() as Arc<dyn nexusfs_net::session::SyncGate>),
                 ));
             }
             Err(e) => tracing::error!(error = %format!("{e:#}"), "replication failed to start"),

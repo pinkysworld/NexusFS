@@ -40,6 +40,74 @@ const BLOB_BATCH_BYTES: u64 = 4 * 1024 * 1024;
 /// Total ops accepted in one session, so a peer cannot stream forever.
 const MAX_OPS_PER_SESSION: usize = 100_000;
 
+/// How much this pass is allowed to transfer.
+///
+/// Operations always flow — they are small, and keeping the namespace converged is
+/// what makes a constrained device still useful. Only content is rationed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SyncLimits {
+    /// Request chunk content at all.
+    pub content: bool,
+    /// Ceiling on content bytes accepted this pass.
+    pub max_content_bytes: u64,
+}
+
+impl SyncLimits {
+    pub fn unlimited() -> Self {
+        Self {
+            content: true,
+            max_content_bytes: u64::MAX,
+        }
+    }
+
+    /// Take operations, defer every byte of content.
+    pub fn metadata_only() -> Self {
+        Self {
+            content: false,
+            max_content_bytes: 0,
+        }
+    }
+}
+
+impl Default for SyncLimits {
+    fn default() -> Self {
+        Self::unlimited()
+    }
+}
+
+/// What the sync loop should do on this tick.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SyncDecision {
+    /// Contact peers at all this tick.
+    pub sync: bool,
+    pub limits: SyncLimits,
+    /// Multiplier applied to the configured poll interval before the next tick.
+    pub interval_scale: f32,
+    /// Human-readable justification, surfaced in logs and the admin console.
+    pub reason: String,
+}
+
+impl Default for SyncDecision {
+    fn default() -> Self {
+        Self {
+            sync: true,
+            limits: SyncLimits::unlimited(),
+            interval_scale: 1.0,
+            reason: "unconstrained".into(),
+        }
+    }
+}
+
+/// Where the sync loop asks permission before each pass.
+///
+/// A trait object rather than a dependency on `nexusfs-energy`, for the same reason
+/// `admin::PeerSource` exists: `net` should carry the mechanism and not the policy. The
+/// daemon is the only place that knows whether energy-aware scheduling is switched on,
+/// and it injects the decision from there.
+pub trait SyncGate: Send + Sync {
+    fn decide(&self) -> SyncDecision;
+}
+
 /// What a session needs from the node it belongs to.
 #[derive(Clone)]
 pub struct SessionCtx {
@@ -65,13 +133,21 @@ pub struct SyncOutcome {
     pub ops_received: usize,
     pub ops_applied: usize,
     pub blobs_received: usize,
+    pub content_bytes: u64,
     pub still_pending: usize,
+    /// True when content was left on the table because of the budget rather than
+    /// because the peer had nothing more.
+    pub content_deferred: bool,
 }
 
 // --- initiator --------------------------------------------------------------
 
-/// Pull everything this node is missing from the peer on the other end of `stream`.
-pub async fn pull_from_peer<S>(stream: &mut S, ctx: &SessionCtx) -> Result<SyncOutcome>
+/// Pull everything this node is missing, subject to `limits`.
+pub async fn pull_from_peer<S>(
+    stream: &mut S,
+    ctx: &SessionCtx,
+    limits: SyncLimits,
+) -> Result<SyncOutcome>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
@@ -156,10 +232,28 @@ where
         }
     }
 
-    // 3. Ask for the content the applied operations turned out to reference.
+    // 3. Ask for the content the applied operations turned out to reference — unless
+    // the budget says to defer it. Operations that already arrived stay parked and
+    // apply on a later pass, so deferring content costs nothing but freshness.
     loop {
         let wanted = ctx.core.missing_chunk_hashes()?;
         if wanted.is_empty() {
+            break;
+        }
+        if !limits.content {
+            outcome.content_deferred = true;
+            debug!(
+                chunks = wanted.len(),
+                "content transfer deferred by the current budget"
+            );
+            break;
+        }
+        if outcome.content_bytes >= limits.max_content_bytes {
+            outcome.content_deferred = true;
+            debug!(
+                bytes = outcome.content_bytes,
+                "content budget for this pass is spent"
+            );
             break;
         }
 
@@ -170,7 +264,11 @@ where
                 None,
                 Msg::WantBlobs {
                     hashes: wanted.clone(),
-                    max_bytes: BLOB_BATCH_BYTES,
+                    max_bytes: BLOB_BATCH_BYTES.min(
+                        limits
+                            .max_content_bytes
+                            .saturating_sub(outcome.content_bytes),
+                    ),
                 },
             ),
         )
@@ -200,6 +298,7 @@ where
                 warn!("peer returned content that does not match the requested hash");
                 continue;
             }
+            outcome.content_bytes += bytes.len() as u64;
             ctx.core.stores.blobs.put(hash, &bytes)?;
             outcome.blobs_received += 1;
         }
@@ -219,6 +318,8 @@ where
         ops = outcome.ops_received,
         applied = outcome.ops_applied,
         blobs = outcome.blobs_received,
+        bytes = outcome.content_bytes,
+        deferred = outcome.content_deferred,
         pending = outcome.still_pending,
         "pull complete"
     );

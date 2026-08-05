@@ -15,18 +15,20 @@ It is intentionally biased toward execution order, not just feature categories.
 
 ## Recently Completed
 
-Milestones M0 through M4 are done: the local state machine, the S3 facade, QUIC
-replication with verified remote apply, and encryption at rest with transparent proofs.
-See `./current-status.md`.
+Milestones M0 through M5 are done: the local state machine, the S3 facade, QUIC
+replication with verified remote apply, encryption at rest with transparent proofs, and
+energy-aware replication scheduling. See `./current-status.md`.
 
 ## Now
 
-### Energy-Aware Scheduling (M5)
+### Energy Follow-Ups
 
-- Sample battery, temperature, CPU and storage telemetry.
-- Persist the most recent telemetry snapshot.
-- Make the replication loop consult the scheduler before transferring.
-- Surface scheduling decisions in the admin console.
+- Detect metered links per platform. The scheduler already treats a metered link as an
+  override, but nothing ever reports one, so that rule cannot fire in the field.
+- Fetch deferred content on demand at read time. A metadata-only node knows which chunks
+  a file needs; reading it should pull them rather than failing until the next pass.
+- Read storage headroom, which `Telemetry` carries but nothing populates.
+- Consider surfacing the budget in the CLI (`status`), not only over the admin API.
 
 ### Encryption Follow-Ups
 
@@ -39,7 +41,8 @@ See `./current-status.md`.
 - Push notification of new operations, so peers do not wait for the poll interval.
 - Delta-encoded operation ranges rather than whole-op batches.
 - Peer enrolment out of band, so trust-on-first-use is not the only option.
-- Bandwidth and energy-aware scheduling of transfers.
+- Prioritise which deferred content to fetch first when the budget is capped — currently
+  the order is whatever `missing_chunk_hashes` returns, not what a user is likely to want.
 
 ### Second Facade
 
@@ -100,8 +103,8 @@ See `./current-status.md`.
 
 The most effective execution order right now is:
 
-1. Wire energy telemetry and the scheduler into background work (M5).
-2. Harden operations: compaction, garbage collection, migration tooling (M6).
+1. Harden operations: compaction, garbage collection, migration tooling (M6).
+2. Close the energy follow-ups, chiefly on-demand fetch of deferred content.
 3. Start ZK-specific work (M7).
 
 ## Definition Of “Ready To Leave Backlog”

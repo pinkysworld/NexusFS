@@ -35,14 +35,15 @@
         <section class="hero hero-compact reveal">
           <div class="hero-copy">
             <p class="eyebrow">Current Status</p>
-            <h1>Encrypted, replicated, and auditable.</h1>
+            <h1>Encrypted, replicated, auditable, and power-aware.</h1>
             <p class="lede">
-              Milestones M0 through M4 are complete: files round-trip through a signed
+              Milestones M0 through M5 are complete: files round-trip through a signed
               operation log applied to CRDT-backed namespace state, an S3-compatible API
               exposes that state over HTTP, two nodes converge over QUIC with every
-              operation and chunk verified before it is accepted, and content is
-              encrypted at rest without breaking that verification. Energy-aware
-              scheduling, the POSIX facade and ZK proofs are still in the backlog.
+              operation and chunk verified before it is accepted, content is encrypted at
+              rest without breaking that verification, and replication now adapts what it
+              transfers to the device's power, heat and link cost. The POSIX facade and
+              ZK proofs are still in the backlog.
             </p>
           </div>
         </section>
@@ -67,15 +68,15 @@
             <article class="feature-card">
               <h3>Present as scaffolding</h3>
               <p>
-                POSIX/FUSE, privacy, energy and ZK crates exist, but remain
-                placeholders or partially wired layers.
+                POSIX/FUSE, privacy and ZK crates exist, but remain placeholders or
+                partially wired layers.
               </p>
             </article>
             <article class="feature-card">
               <h3>Highest-value backlog</h3>
               <p>
-                Energy-aware scheduling, so background replication respects battery,
-                heat and link cost on edge devices.
+                Fetching deferred content on demand, so a node that skipped the bytes to
+                save power can still serve a file the moment it is asked for.
               </p>
             </article>
           </div>
@@ -98,13 +99,17 @@
               <li>QUIC replication with verified remote apply and pinned peer keys</li>
               <li>At-rest encryption with per-file keys, still verifiable by peers</li>
               <li>Signed transparent proofs and a <code>verify</code> audit command</li>
+              <li>Energy-aware replication budgets, observable at <code>/api/energy</code></li>
             </ul>
           </div>
           <div class="content-panel">
             <h2>Still in backlog</h2>
             <ul class="list-block">
               <li>POSIX/FUSE facade</li>
-              <li>Energy-aware scheduling wired into background jobs</li>
+              <li>On-demand fetch of content a constrained node deferred</li>
+              <li>Metered-link detection, so that scheduler rule can fire in the field</li>
+              <li>Per-recipient key envelopes, so replicas need not share one key</li>
+              <li>Zero-knowledge proof modes</li>
             </ul>
           </div>
         </section>

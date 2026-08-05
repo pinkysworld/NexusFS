@@ -21,12 +21,14 @@ The key rule is simple: every milestone must leave behind a repository that stil
 - `M2` complete via the S3-like facade
 - `M3` complete: two nodes converge over QUIC
 - `M4` complete: encryption at rest and transparent proofs
-- `M5` next
+- `M5` complete: energy-aware replication scheduling
+- `M6` next
 
 The workspace, daemon, storage baseline, docs, and the local filesystem core are real: a
 signed operation log drives CRDT-backed namespace state, files round-trip through the CLI,
-and state survives restart. The next milestones layer replication, encryption, and
-higher-level facades on top of that.
+state survives restart, two nodes converge over QUIC, content can be encrypted at rest,
+and replication adapts what it transfers to the device's power situation. What remains is
+operational hardening, the POSIX facade, and the proof systems.
 
 ## Milestone Roadmap
 
@@ -174,7 +176,7 @@ Exit criteria:
 
 ### M5: Energy-Aware Scheduling
 
-Status: Not started
+Status: Complete
 
 Primary goal:
 
@@ -182,16 +184,28 @@ Primary goal:
 
 Deliverables:
 
-- telemetry sampling
-- persisted telemetry snapshots
-- scheduler decisions based on battery, temperature, and link cost
-- replication throttling modes
-- admin visibility into current scheduling state
+- telemetry sampling — done: power source, charge, temperature, load and link cost, via
+  `pmset`/`sysctl` on macOS and sysfs on Linux, with explicit unknowns everywhere else
+- scheduler decisions based on battery, temperature, and link cost — done: a rule-based
+  scheduler grading battery and treating heat and metered links as overrides
+- replication throttling modes — done: the session accepts a budget and can skip content
+  entirely or stop at a byte ceiling, deferring the rest to a later pass
+- admin visibility into current scheduling state — done: `/api/energy` reports the
+  reading, the budget, and the rule that fired
+
+Deliberately not done:
+
+- *persisted telemetry snapshots.* A power reading from before a restart describes a
+  machine that may since have been unplugged, moved, or cooled. Persisting it would
+  produce a stored value that looks authoritative and is not, so the daemon samples on
+  demand and caches only for the life of the process.
 
 Exit criteria:
 
-- replication behavior changes predictably under low-power or high-heat conditions
-- scheduler decisions are testable and observable
+- replication behavior changes predictably under low-power or high-heat conditions —
+  met, and covered by a decision table over the full input space
+- scheduler decisions are testable and observable — met: the policy is a pure function
+  under unit test, and replication honouring it is tested end to end over a real session
 
 ### M6: Operational Hardening
 
@@ -262,8 +276,8 @@ The preferred delivery order is:
 1. Finish M1 local state correctness
 2. Ship one real facade in M2
 3. Complete M3 replication
-4. Add M4 encryption and transparent proofs
-5. Integrate M5 energy-aware scheduling
+4. Add M4 encryption and transparent proofs (done)
+5. Integrate M5 energy-aware scheduling (done)
 6. Harden operations in M6
 7. Introduce M7 ZK commitments
 8. Expand research work in M8

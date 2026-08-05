@@ -57,14 +57,15 @@
               <h3>Runtime State</h3>
               <p>
                 Local data includes the storage backend, generated identities, head
-                metadata, and the foundation for future peer state.
+                metadata, pinned peer keys, and the repository key when encryption is on.
               </p>
             </article>
             <article class="feature-card">
               <h3>Admin Visibility</h3>
               <p>
-                The embedded admin layer is the local control plane for status,
-                storage, oplog inspection, and future replication telemetry.
+                The embedded admin layer is the local control plane for status, storage,
+                oplog inspection, peer sync state, verification reports, and the current
+                energy budget — including which rule is throttling replication and why.
               </p>
             </article>
             <article class="feature-card">

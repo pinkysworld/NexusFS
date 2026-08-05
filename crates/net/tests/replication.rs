@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use nexusfs_core::{now_ms, CoreState, Stores};
 use nexusfs_crypto::Identity;
-use nexusfs_net::session::{pull_from_peer, serve_session, SessionCtx};
+use nexusfs_net::session::{pull_from_peer, serve_session, SessionCtx, SyncLimits};
 use nexusfs_net::trust::TrustPolicy;
 use nexusfs_proto::DeviceId;
 use nexusfs_storage::mem_store::MemStore;
@@ -74,12 +74,21 @@ impl Node {
 
 /// Run one pull of `puller` from `source` over an in-memory connection.
 async fn pull(puller: &Node, source: &Node) -> anyhow::Result<nexusfs_net::session::SyncOutcome> {
+    pull_with(puller, source, SyncLimits::unlimited()).await
+}
+
+/// As `pull`, but under an explicit budget.
+async fn pull_with(
+    puller: &Node,
+    source: &Node,
+    limits: SyncLimits,
+) -> anyhow::Result<nexusfs_net::session::SyncOutcome> {
     let (mut client, mut server) = tokio::io::duplex(1 << 20);
 
     let server_ctx = source.ctx.clone();
     let responder = tokio::spawn(async move { serve_session(&mut server, &server_ctx).await });
 
-    let outcome = pull_from_peer(&mut client, &puller.ctx).await;
+    let outcome = pull_from_peer(&mut client, &puller.ctx, limits).await;
     // Dropping the client closes the pipe, which ends the responder loop.
     drop(client);
     let _ = responder.await;
@@ -340,4 +349,98 @@ async fn a_peer_without_the_repository_key_replicates_but_cannot_read() {
         b.ctx.core.read_file_path("/vault/secret.txt").is_err(),
         "content must not be readable with the wrong repository key"
     );
+}
+
+// --- energy budget -----------------------------------------------------------
+//
+// The claim M5 rests on is that a constrained device can stay useful by taking the
+// namespace and skipping the bytes. These check that the budget actually produces that
+// split, rather than just being carried around unread.
+
+#[tokio::test]
+async fn a_metadata_only_budget_converges_the_namespace_without_the_bytes() {
+    let a = node(1, 1, true);
+    let b = node(2, 2, true);
+
+    a.mkdir("/reports");
+    a.write("/reports/q3.txt", "revenue up");
+
+    let outcome = pull_with(&b, &a, SyncLimits::metadata_only())
+        .await
+        .unwrap();
+
+    assert!(outcome.ops_received > 0, "operations should still transfer");
+    assert_eq!(outcome.blobs_received, 0, "no content should transfer");
+    assert_eq!(outcome.content_bytes, 0);
+    assert!(
+        outcome.content_deferred,
+        "the outcome must say the content was withheld, not that there was none"
+    );
+
+    // The point of the exercise: the device knows the file exists and where it lives.
+    assert_eq!(b.listing("/reports"), vec!["q3.txt".to_string()]);
+    assert!(
+        !b.ctx.core.missing_chunk_hashes().unwrap().is_empty(),
+        "the content is known to be outstanding"
+    );
+
+    // And the deferral is recoverable — nothing was dropped on the floor.
+    let second = pull(&b, &a).await.unwrap();
+    assert!(second.blobs_received > 0);
+    assert!(!second.content_deferred);
+    assert_eq!(b.read("/reports/q3.txt"), "revenue up");
+    assert_eq!(a.state_root(), b.state_root());
+}
+
+#[tokio::test]
+async fn a_byte_cap_stops_part_way_and_resumes_on_the_next_pass() {
+    let a = node(1, 1, true);
+    let b = node(2, 2, true);
+
+    // Several separate files, so the transfer has natural stopping points. The contents
+    // must differ: identical bytes deduplicate to a single blob under content
+    // addressing, and there would be nothing left to defer.
+    for i in 0..6 {
+        a.write(&format!("/bulk/file{i}.bin"), &format!("{i}").repeat(4096));
+    }
+
+    let capped = pull_with(
+        &b,
+        &a,
+        SyncLimits {
+            content: true,
+            max_content_bytes: 4096,
+        },
+    )
+    .await
+    .unwrap();
+
+    assert!(capped.ops_received > 0);
+    assert!(
+        capped.content_deferred,
+        "the cap should have been reached before the backlog cleared"
+    );
+    assert!(
+        !b.ctx.core.missing_chunk_hashes().unwrap().is_empty(),
+        "some content should still be outstanding"
+    );
+
+    // Uncapped, the rest arrives and the two agree.
+    pull(&b, &a).await.unwrap();
+    assert!(b.ctx.core.missing_chunk_hashes().unwrap().is_empty());
+    assert_eq!(a.state_root(), b.state_root());
+}
+
+#[tokio::test]
+async fn an_unlimited_budget_is_indistinguishable_from_no_budget() {
+    // Guards against the throttle leaking into the default path.
+    let a = node(1, 1, true);
+    let b = node(2, 2, true);
+
+    a.write("/notes/plain.txt", "hello");
+    let outcome = pull_with(&b, &a, SyncLimits::unlimited()).await.unwrap();
+
+    assert!(outcome.blobs_received > 0);
+    assert!(!outcome.content_deferred);
+    assert_eq!(b.read("/notes/plain.txt"), "hello");
 }

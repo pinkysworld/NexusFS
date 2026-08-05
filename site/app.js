@@ -32,10 +32,16 @@ const milestoneData = [
     body: "Chunk content encrypted at rest with per-file keys, still addressed by ciphertext hash so peers verify transfers without holding a key. Operations carry signed transparent proofs; nexusfs verify audits the repository."
   },
   {
-    label: "M5–M8",
-    title: "Scheduling, hardening, ZK",
+    label: "M5",
+    title: "Energy-aware scheduling",
+    status: "done",
+    body: "Replication reads the device's power source, charge, temperature and link cost, then decides how much it may transfer. Under constraint it keeps taking operations and defers content, so a low-battery node stays current on what exists without spending the bytes."
+  },
+  {
+    label: "M6–M8",
+    title: "Hardening, ZK, privacy",
     status: "todo",
-    body: "Energy-aware background work, operational tooling, then commitment-oriented proof systems and privacy research. None of this is started."
+    body: "Operational tooling and failure-mode work, then commitment-oriented proof systems and private metadata research. None of this is started."
   }
 ];
 

@@ -32,12 +32,28 @@ Typical local runtime state includes:
 
 ## Operating The Admin Interface
 
-The admin service is intended to provide:
+The admin service listens on `admin.bind` and authenticates with the `x-nexusfs-token`
+header. It serves a small console plus a JSON API:
 
-- local status and current head visibility
-- storage and oplog inspection
-- future peer and replication status
-- future energy telemetry and proof statistics
+| Endpoint | Shows |
+| --- | --- |
+| `/api/status` | head, state root, device id, operation and pending counts |
+| `/api/fs/head` | the current head hash |
+| `/api/fs/ls?path=` | a directory listing from live namespace state |
+| `/api/oplog/summary` | applied-operation clock summary |
+| `/api/oplog/recent?limit=` | the most recent operations |
+| `/api/storage/stats` | blob count and bytes |
+| `/api/peers` | per-peer sync status, errors, and transfer counters |
+| `/api/security` | the same report `nexusfs verify` prints |
+| `/api/energy` | the current power reading, the replication budget, and why |
+
+`/api/energy` is the one to reach for when replication looks slower than expected: its
+`reason` field names the rule that fired, so "battery 14% is at or below the low
+threshold 20%" distinguishes a deliberate throttle from a broken peer. Peers also report
+`content_deferred`, which separates "up to date" from "namespace current, bytes pending".
+
+Note that the embedded database takes an exclusive lock, so the `status` CLI command
+cannot run while the daemon holds the store. Query the running daemon instead.
 
 ## Development Workflow
 

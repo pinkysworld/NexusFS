@@ -1,18 +1,19 @@
 # Current Status
 
-Last updated: August 2, 2026
+Last updated: August 5, 2026
 
 This page summarizes what NexusFS currently implements in the repository and what remains in the backlog.
 
 ## Overall State
 
-**Milestones M0 through M4 are complete.** NexusFS is a working distributed filesystem:
+**Milestones M0 through M5 are complete.** NexusFS is a working distributed filesystem:
 files round-trip through a signed operation log applied to CRDT-backed namespace state,
 an S3-compatible API exposes that state over HTTP, two nodes converge over QUIC with
-every operation and chunk verified before it is accepted, and content can be encrypted
-at rest while still replicating.
+every operation and chunk verified before it is accepted, content can be encrypted at
+rest while still replicating, and replication adapts what it transfers to the device's
+power, thermal and link situation.
 
-Not yet implemented: the POSIX/FUSE facade, energy-aware scheduling, and ZK proofs.
+Not yet implemented: the POSIX/FUSE facade and ZK proofs.
 
 ## Implemented Now
 
@@ -122,8 +123,12 @@ presenting a different key than the one pinned is refused whatever the policy sa
 `/api/peers` reports each configured peer's last attempt, last success, error and
 transfer counts.
 
+Each pass is bounded by a budget the energy scheduler supplies (see below), which can
+skip content entirely or stop at a byte ceiling and defer the rest to a later pass.
+
 Not implemented: push notification of new operations (peers poll on an interval),
-delta-encoded operation ranges, and bandwidth or energy-aware scheduling.
+delta-encoded operation ranges, and prioritising *which* deferred content to fetch first
+when the budget is capped.
 
 ### Encryption At Rest
 
@@ -174,6 +179,38 @@ Establishing that a transition was correct means replaying it, which `verify` do
 locally. `zk_commit` and `zk_full` remain unimplemented and are treated as `none`
 rather than silently pretending to prove anything.
 
+### Energy-Aware Scheduling
+
+`crates/energy` samples the device before each sync pass — power source, battery charge,
+temperature, one-minute load, link cost — and a rule-based scheduler turns that reading
+into a budget: whether to contact peers at all, whether to transfer content or only
+operations, a byte ceiling for the pass, and a multiplier on the poll interval. Sampling
+shells out to `pmset` and `sysctl` on macOS and reads `/sys/class/power_supply` and
+`/sys/class/thermal` on Linux; other platforms report unknown on every field.
+
+The policy is built on the asymmetry between an operation and the content it names. An
+operation is a few hundred bytes; the content can be megabytes. So the graded response is
+to keep the namespace converged and defer the bytes — a device that has taken every
+operation but no content still knows what exists, where, and at what version, and can
+fetch any particular file on demand once power returns. The ladder runs full sync →
+capped content → operations only → nothing, and only the last rung stops tracking the
+filesystem at all.
+
+Heat and metered links override the battery grade rather than being folded into it. No
+amount of remaining charge makes sustained transfer on a hot device acceptable, and a
+metered link costs money per byte regardless of power.
+
+Every reading is a three-state enum rather than a boolean, and unknown always means
+unconstrained. A server with no battery sensor is not a device at 0% charge; conflating
+the two would make an unconstrained machine throttle itself permanently.
+
+The decision is observable at `/api/energy`, which reports the reading, the resulting
+budget, and a sentence explaining which rule fired. The daemon samples once per pass and
+caches it, so the console explains the pass that actually ran rather than a fresh reading
+that could contradict it.
+
+Set `energy.enabled = false` to remove every limit while keeping the reading visible.
+
 ### Browser Playground
 
 `crates/wasm` compiles the core to `wasm32-unknown-unknown` against the in-memory
@@ -189,49 +226,52 @@ daemon uses between real nodes.
 
 ### Test Coverage
 
-70 tests, including order-independent convergence (the same operation set applied in
+85 tests, including order-independent convergence (the same operation set applied in
 different orders yields an identical state root), idempotent re-apply, pending-op drain,
 concurrent-create conflict naming, concurrent-write resolution, rename-vs-unlink,
 subtree-cycle refusal, restart persistence, S3 key mapping and pagination, and
 replication over both an in-memory pipe and real QUIC sockets — covering unknown-peer
 refusal, key-rotation refusal, forged-operation rejection and corrupted-content
 rejection, encrypted round-trips, absence of plaintext on disk, wrong-key and
-tampered-ciphertext rejection, and replication of encrypted content to peers with and
-without the repository key.
+tampered-ciphertext rejection, replication of encrypted content to peers with and
+without the repository key, the scheduler's decision table across power, charge, heat and
+link cost, and replication actually honouring a metadata-only budget and a byte cap —
+including that a deferred transfer completes on a later unconstrained pass.
 
 ## Partially Implemented Or Present As Scaffolding
 
 - `crypto::envelope` now seals *and* opens, but is not yet used by the write path.
-- POSIX/FUSE, privacy, energy and ZK crates are present but remain stubs.
+- Link cost is always reported as unknown: no platform metered-connection detection is
+  implemented yet, so a metered link must currently be simulated in tests rather than
+  detected in the field.
+- POSIX/FUSE, privacy and ZK crates are present but remain stubs.
 
 ## Backlog
 
 ### Highest-Priority Backlog
 
-- Wire energy telemetry and the scheduler into real background decisions (M5).
+- Detect metered links per platform, so the scheduler's link rule can fire in the field.
 - Replace polling with push notification of new operations.
 - Per-recipient key envelopes, so replicas need not share one repository key.
+- Fetch deferred content on demand at read time, so a metadata-only node can serve a file
+  the moment it is actually asked for.
 
 ### Security and Verification Backlog
 
-- Integrate chunk encryption into the live storage path.
-- Implement `Envelope::open` and add key-envelope handling to real read and write flows.
-- Attach transparent proof bundles to new operations automatically.
-- Enforce proof verification on receipt where enabled.
+- Add key-envelope handling to real read and write flows, so peers need not share a key.
 - Improve trust management beyond development-style bootstrap behavior.
+- Commitment-oriented proof systems (M7), replacing transparent bundles where useful.
 
 ### Product Surface Backlog
 
-- Implement the S3-like facade on top of the existing state machine.
 - Implement the POSIX/FUSE facade.
-- Add operational tooling such as verification, migration, and maintenance commands.
+- Add operational tooling such as migration and maintenance commands.
 
 ### Systems Backlog
 
 - Batch storage writes: the sled backend currently flushes on every put, costing an
   fsync per chunk.
 - Cache directory maps rather than re-reading and re-materializing per path component.
-- Integrate energy telemetry and the scheduler into real background work decisions.
 - Add compaction, cleanup, and garbage collection for unreferenced inodes and blobs.
 - Add broader integration tests between daemon instances.
 
@@ -242,11 +282,14 @@ without the repository key.
 - M2 is complete via the S3 facade; the POSIX/FUSE alternative remains unimplemented.
 - M3 is complete: two nodes converge over QUIC with verified remote apply.
 - M4 is complete: encryption at rest and transparent proofs.
-- M5 and beyond are backlog, except for crate scaffolding and interface placeholders.
+- M5 is complete: telemetry, a rule-based scheduler, and replication that honours it.
+- M6 and beyond are backlog, except for crate scaffolding and interface placeholders.
 
 ## Recommended Next Step
 
-Bring up replication between two nodes. The local apply pipeline is now the single
-source of truth for state changes, so a remote operation only has to be delivered and
-handed to the same `apply_op` — verification, conflict resolution and pending handling
-already work.
+Close the loop the energy scheduler opened: fetch deferred content on demand at read
+time. A node running metadata-only already knows a file exists and which chunks it needs;
+today a read of that file fails until the next unconstrained sync pass happens to bring
+the bytes. Pulling the missing chunks when someone actually opens the file is what turns
+"deferred" from a gap into a policy, and it reuses the blob phase of the existing
+session protocol rather than needing new wire format.
