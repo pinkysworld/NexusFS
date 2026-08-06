@@ -9,6 +9,7 @@
 use anyhow::{bail, Context, Result};
 
 use nexusfs_crdt::lww::LwwReg;
+use nexusfs_crdt::or_map::Dot;
 use nexusfs_crypto::{sign, verify, Identity};
 use nexusfs_proto::{CausalCtx, ChunkRef, DeviceId, FsOp, FsOpKind, Hash, OpId};
 
@@ -293,8 +294,13 @@ impl CoreState {
                 old_name,
                 new_parent,
                 new_name,
-            } => self.mutate_rename(op, *old_parent, old_name, *new_parent, new_name),
-            FsOpKind::Unlink { parent, name } => self.mutate_unlink(op, *parent, name),
+                observed,
+            } => self.mutate_rename(op, *old_parent, old_name, *new_parent, new_name, observed),
+            FsOpKind::Unlink {
+                parent,
+                name,
+                observed,
+            } => self.mutate_unlink(op, *parent, name, observed),
             FsOpKind::SetAttr {
                 inode,
                 mode,
@@ -479,6 +485,7 @@ impl CoreState {
         old_name: &str,
         new_parent: u128,
         new_name: &str,
+        observed: &[OpId],
     ) -> Result<Mutation> {
         validate_name(new_name)?;
 
@@ -493,10 +500,32 @@ impl CoreState {
             )));
         }
 
-        let Some(entry) = self.lookup(old_parent, old_name)? else {
-            // Rename of something already unlinked. Per ops_semantics this is a no-op
-            // rather than an error: the unlink is simply causally ahead of us.
-            return Ok(Mutation::Done);
+        // Move the entry the author moved, identified by the dots it recorded — not
+        // whatever currently ranks highest here. With a concurrent same-name creation
+        // those differ, and picking locally would move a different inode on each
+        // replica.
+        let dots: Vec<Dot> = observed.iter().copied().map(dot_for_op).collect();
+        let survivors = self
+            .load_dir(old_parent)?
+            .unwrap_or_default()
+            .get_all(&old_name.to_string());
+
+        let Some(entry) = survivors
+            .iter()
+            .filter(|(dot, _)| dots.contains(dot))
+            .max_by_key(|(dot, _)| *dot)
+            .map(|(_, value)| *value)
+        else {
+            if dots.is_empty() || survivors.iter().any(|(dot, _)| dots.contains(dot)) {
+                // Nothing to move, and nothing outstanding that could change that.
+                return Ok(Mutation::Done);
+            }
+            // The creation this rename observed has not arrived. Park rather than
+            // dropping the rename, which would leave the entry under its old name here
+            // and under the new one elsewhere.
+            return Ok(Mutation::Unmet(format!(
+                "rename source {old_name:?} has not been created here yet"
+            )));
         };
 
         // Moving a directory beneath itself would detach the subtree from the root.
@@ -514,12 +543,12 @@ impl CoreState {
 
         if old_parent == new_parent {
             let mut map = self.load_dir(old_parent)?.unwrap_or_default();
-            map.remove(&old_name.to_string());
+            map.remove_dots(&old_name.to_string(), dots.iter().copied());
             map.add(new_name.to_string(), dot_for_op(op.id), value);
             self.store_dir(old_parent, &map)?;
         } else {
             let mut source = self.load_dir(old_parent)?.unwrap_or_default();
-            source.remove(&old_name.to_string());
+            source.remove_dots(&old_name.to_string(), dots.iter().copied());
             self.store_dir(old_parent, &source)?;
 
             let mut dest = self.load_dir(new_parent)?.unwrap_or_default();
@@ -530,7 +559,13 @@ impl CoreState {
         Ok(Mutation::Done)
     }
 
-    fn mutate_unlink(&self, _op: &FsOp, parent: u128, name: &str) -> Result<Mutation> {
+    fn mutate_unlink(
+        &self,
+        _op: &FsOp,
+        parent: u128,
+        name: &str,
+        observed: &[OpId],
+    ) -> Result<Mutation> {
         if !self.is_dir(parent)? {
             return Ok(Mutation::Unmet(format!(
                 "parent inode {parent:x} does not exist or is not a directory"
@@ -538,9 +573,10 @@ impl CoreState {
         }
 
         let mut map = self.load_dir(parent)?.unwrap_or_default();
-        // Removing a name that is already gone converges to the same state, so this
-        // needs no existence check.
-        map.remove(&name.to_string());
+        // Exactly what the author saw, not what happens to be here now. The dots may
+        // not have arrived yet; recording them anyway is what makes the removal hold
+        // when they do, and is why this needs no existence check.
+        map.remove_dots(&name.to_string(), observed.iter().copied().map(dot_for_op));
         self.store_dir(parent, &map)?;
         Ok(Mutation::Done)
     }

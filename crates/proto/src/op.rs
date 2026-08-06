@@ -54,10 +54,24 @@ pub enum FsOpKind {
         old_name: String,
         new_parent: u128,
         new_name: String,
+        /// The entries the author saw at `old_name`, identified by the operation that
+        /// created each. See `Unlink::observed`.
+        #[serde(default)]
+        observed: Vec<OpId>,
     },
     Unlink {
         parent: u128,
         name: String,
+        /// The entries this removal saw, identified by the operation that created each.
+        ///
+        /// Observed-remove semantics only converge if a removal names what it removed.
+        /// Deriving that from local state at apply time makes the result depend on
+        /// arrival order: a removal applied before the matching creation would observe
+        /// nothing, and the creation would then survive on that replica and not on
+        /// another. Carrying the set makes the removal mean the same thing everywhere,
+        /// and lets it be recorded even before the creation it refers to arrives.
+        #[serde(default)]
+        observed: Vec<OpId>,
     },
     SetAttr {
         inode: u128,

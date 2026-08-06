@@ -41,14 +41,37 @@ impl<K: Ord + Clone, V: Clone> OrMap<K, V> {
         self.adds.entry(key).or_default().insert(dot, value);
     }
 
+    /// Remove everything currently visible for `key`.
+    ///
+    /// Only meaningful against a local, fully-observed view — an operation that has to
+    /// converge across replicas must name its dots explicitly with [`remove_dots`],
+    /// because "currently visible" differs by arrival order.
+    ///
+    /// [`remove_dots`]: Self::remove_dots
+    pub fn observed_dots(&self, key: &K) -> Vec<Dot> {
+        self.adds
+            .get(key)
+            .map(|dots| dots.keys().copied().collect())
+            .unwrap_or_default()
+    }
+
     pub fn remove(&mut self, key: &K) {
-        if let Some(dots) = self.adds.get(key) {
-            let observed: BTreeSet<Dot> = dots.keys().cloned().collect();
-            self.removes
-                .entry(key.clone())
-                .or_default()
-                .extend(observed);
+        let observed = self.observed_dots(key);
+        self.remove_dots(key, observed);
+    }
+
+    /// Record a removal of exactly `dots`.
+    ///
+    /// The dots need not be present yet. A removal that arrives before the addition it
+    /// refers to still suppresses it, because `get_all` filters against this set rather
+    /// than consulting it only at insertion time — which is what makes the result
+    /// independent of arrival order.
+    pub fn remove_dots(&mut self, key: &K, dots: impl IntoIterator<Item = Dot>) {
+        let mut iter = dots.into_iter().peekable();
+        if iter.peek().is_none() {
+            return;
         }
+        self.removes.entry(key.clone()).or_default().extend(iter);
     }
 
     pub fn get(&self, key: &K) -> Option<V> {

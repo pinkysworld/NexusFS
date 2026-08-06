@@ -116,12 +116,7 @@ impl Config {
     }
 
     /// Listen address for the replication transport.
-    ///
-    /// Unused until the peer manager lands (see the `quic` TODO in `daemon.rs`); kept
-    /// so the config surface and the transport arrive together rather than the address
-    /// parsing being written twice.
     #[cfg(feature = "quic")]
-    #[allow(dead_code)]
     pub fn net_addr(&self) -> Result<SocketAddr> {
         self.net
             .listen

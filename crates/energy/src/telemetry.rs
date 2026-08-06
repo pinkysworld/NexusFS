@@ -171,7 +171,10 @@ fn platform_sample() -> Telemetry {
             .flatten()
             .filter_map(|z| fs::read_to_string(z.path().join("temp")).ok())
             .filter_map(|v| v.trim().parse::<i32>().ok())
-            .map(|milli| (milli / 1000) as i16)
+            // Clamp rather than cast: a bogus sysfs reading of i32::MAX millidegrees
+            // would wrap to a small or negative i16 and could silently satisfy — or
+            // silently defeat — the thermal rule.
+            .map(|milli| (milli / 1000).clamp(i16::MIN as i32, i16::MAX as i32) as i16)
             .max();
     }
 

@@ -282,3 +282,82 @@ async fn binary_objects_round_trip_across_chunk_boundaries() {
     assert_eq!(body.len(), payload.len());
     assert_eq!(body.as_ref(), payload.as_slice());
 }
+
+#[tokio::test]
+async fn a_page_of_only_common_prefixes_still_returns_a_continuation_token() {
+    // IsTruncated with no NextContinuationToken is malformed: the client is told there
+    // is more but given no way to ask for it. Reachable whenever a truncated page
+    // consists entirely of folder-style prefixes, because the token was taken from the
+    // last *object* and there were none.
+    let st = state("");
+    for group in 1..=5 {
+        let (status, _) = send(&st, put(&format!("/bk/g{group}/file.txt"), "x")).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    let (status, body) = send(
+        &st,
+        Request::get("/bk?list-type=2&delimiter=/&max-keys=2")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("<IsTruncated>true</IsTruncated>"), "{body}");
+    assert!(
+        body.contains("<NextContinuationToken>"),
+        "a truncated page must say how to continue: {body}"
+    );
+}
+
+#[tokio::test]
+async fn paging_through_common_prefixes_does_not_repeat_them() {
+    let st = state("");
+    for group in 1..=5 {
+        send(&st, put(&format!("/bk/g{group}/file.txt"), "x")).await;
+    }
+
+    let mut seen: Vec<String> = Vec::new();
+    let mut token: Option<String> = None;
+    for _ in 0..10 {
+        let uri = match &token {
+            Some(t) => format!("/bk?list-type=2&delimiter=/&max-keys=2&continuation-token={t}"),
+            None => "/bk?list-type=2&delimiter=/&max-keys=2".to_string(),
+        };
+        let (_, body) = send(&st, Request::get(&uri).body(Body::empty()).unwrap()).await;
+
+        for chunk in body.split("<Prefix>").skip(1) {
+            if let Some(value) = chunk.split("</Prefix>").next() {
+                if value.ends_with('/') {
+                    seen.push(value.to_string());
+                }
+            }
+        }
+
+        if !body.contains("<IsTruncated>true</IsTruncated>") {
+            token = None;
+            break;
+        }
+        token = body
+            .split("<NextContinuationToken>")
+            .nth(1)
+            .and_then(|c| c.split("</NextContinuationToken>").next())
+            .map(|s| s.to_string());
+        assert!(token.is_some(), "truncated page gave no token: {body}");
+    }
+
+    assert!(token.is_none(), "paging did not terminate");
+    let mut unique = seen.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(
+        seen.len(),
+        unique.len(),
+        "a prefix was returned twice: {seen:?}"
+    );
+    assert_eq!(
+        unique.len(),
+        5,
+        "every group should appear exactly once: {unique:?}"
+    );
+}

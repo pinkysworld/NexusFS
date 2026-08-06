@@ -42,6 +42,28 @@ pub struct WalkEntry {
 }
 
 impl CoreState {
+    /// The operations that created the entries currently visible at `name`.
+    ///
+    /// A dot is exactly the id of the operation that added the entry, so this is both
+    /// the observed-remove set and, for a rename, the identity of the thing being
+    /// moved. Sorted, so two nodes building the same removal from the same view produce
+    /// byte-identical operations.
+    fn observed_entry_ops(&self, parent: u128, name: &str) -> Result<Vec<nexusfs_proto::OpId>> {
+        let Some(map) = self.load_dir(parent)? else {
+            return Ok(Vec::new());
+        };
+        let mut ops: Vec<nexusfs_proto::OpId> = map
+            .get_all(&name.to_string())
+            .into_iter()
+            .map(|(dot, _)| nexusfs_proto::OpId {
+                device_id: nexusfs_proto::DeviceId(dot.device_id),
+                counter: dot.counter,
+            })
+            .collect();
+        ops.sort_by_key(|id| (id.device_id.0, id.counter));
+        Ok(ops)
+    }
+
     /// Sign an operation and apply it, treating "not yet applicable" as an error.
     ///
     /// Parking is right for replicated operations, whose dependencies may genuinely
@@ -178,7 +200,19 @@ impl CoreState {
         if self.lookup(parent, &name)?.is_none() {
             bail!("no such path: {path}");
         }
-        self.apply_local(identity, FsOpKind::Unlink { parent, name }, now)?;
+        // Record what this removal actually saw. Deriving it later, on whichever
+        // replica happens to apply the op, would make the result depend on arrival
+        // order.
+        let observed = self.observed_entry_ops(parent, &name)?;
+        self.apply_local(
+            identity,
+            FsOpKind::Unlink {
+                parent,
+                name,
+                observed,
+            },
+            now,
+        )?;
         Ok(())
     }
 
@@ -194,6 +228,7 @@ impl CoreState {
             bail!("destination directory of {to} does not exist");
         };
 
+        let observed = self.observed_entry_ops(old_parent, &old_name)?;
         self.apply_local(
             identity,
             FsOpKind::Rename {
@@ -201,6 +236,7 @@ impl CoreState {
                 old_name,
                 new_parent,
                 new_name,
+                observed,
             },
             now,
         )?;

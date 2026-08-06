@@ -303,7 +303,7 @@ fn rename_moves_an_entry_between_directories() {
         0xF1,
         5,
         5_000,
-        rename(src, "a.txt", dst, "b.txt"),
+        rename(src, "a.txt", dst, "b.txt", &[op_id(0xF1, 3)]),
     ))
     .unwrap();
 
@@ -327,8 +327,14 @@ fn rename_after_unlink_is_a_no_op() {
     core.apply_op(&signed_op(&id, 0xF2, 2, 2_000, create_file(d, "a.txt")))
         .unwrap();
 
-    core.apply_op(&signed_op(&id, 0xF2, 3, 3_000, unlink(d, "a.txt")))
-        .unwrap();
+    core.apply_op(&signed_op(
+        &id,
+        0xF2,
+        3,
+        3_000,
+        unlink(d, "a.txt", &[op_id(0xF2, 2)]),
+    ))
+    .unwrap();
     assert!(names(&core, "/d").is_empty());
 
     core.apply_op(&signed_op(
@@ -336,7 +342,7 @@ fn rename_after_unlink_is_a_no_op() {
         0xF2,
         4,
         4_000,
-        rename(d, "a.txt", d, "b.txt"),
+        rename(d, "a.txt", d, "b.txt", &[]),
     ))
     .unwrap();
     assert!(
@@ -363,7 +369,7 @@ fn moving_a_directory_into_its_own_subtree_is_refused() {
         0xF3,
         3,
         3_000,
-        rename(ROOT_INODE, "outer", inner, "outer"),
+        rename(ROOT_INODE, "outer", inner, "outer", &[op_id(0xF3, 1)]),
     );
     assert!(
         core.apply_op(&bad).is_err(),
@@ -527,4 +533,128 @@ fn content_change_moves_the_state_root() {
     let after = core.compute_state_root().unwrap();
 
     assert_ne!(before, after, "content edits must change the state root");
+}
+
+#[test]
+fn an_unlink_that_arrives_before_the_create_still_wins() {
+    // Observed-remove semantics record the dots a remove *saw*. `mutate_unlink` derives
+    // those from local state at apply time, so an unlink applied before the matching
+    // create observes nothing — and the create, arriving later, survives.
+    //
+    // Two replicas given the same two operations in opposite orders must still agree.
+    // This is the property the whole design rests on.
+    let id = Identity::generate();
+
+    let create = signed_op(&id, 0xA1, 1, 1_000, mkdir(ROOT_INODE, "x"));
+    let unlink_op = signed_op(
+        &id,
+        0xB2,
+        1,
+        2_000,
+        unlink(ROOT_INODE, "x", &[op_id(0xA1, 1)]),
+    );
+
+    let in_order_dir = tempfile::tempdir().unwrap();
+    let in_order = bootstrapped(in_order_dir.path(), 0xC1);
+    in_order.apply_op(&create).unwrap();
+    in_order.apply_op(&unlink_op).unwrap();
+
+    let reversed_dir = tempfile::tempdir().unwrap();
+    let reversed = bootstrapped(reversed_dir.path(), 0xC2);
+    reversed.apply_op(&unlink_op).unwrap();
+    reversed.apply_op(&create).unwrap();
+
+    assert_eq!(
+        names(&in_order, "/"),
+        names(&reversed, "/"),
+        "the two replicas hold the same operations and must agree on the result"
+    );
+    assert_eq!(
+        in_order.compute_state_root().unwrap(),
+        reversed.compute_state_root().unwrap()
+    );
+}
+
+#[test]
+fn a_removal_does_not_take_a_concurrent_creation_with_it() {
+    // Two devices create the same name without seeing each other; a third removes what
+    // it saw. Under observed-remove the unseen creation must survive — and, crucially,
+    // must survive on every replica regardless of the order the three arrive in.
+    let id = Identity::generate();
+
+    let create_a = signed_op(&id, 0xA1, 1, 1_000, mkdir(ROOT_INODE, "shared"));
+    let create_b = signed_op(&id, 0xB2, 1, 1_500, mkdir(ROOT_INODE, "shared"));
+    // The remover only ever saw A's.
+    let removal = signed_op(
+        &id,
+        0xC3,
+        1,
+        2_000,
+        unlink(ROOT_INODE, "shared", &[op_id(0xA1, 1)]),
+    );
+
+    let orders: Vec<Vec<&nexusfs_proto::FsOp>> = vec![
+        vec![&create_a, &create_b, &removal],
+        vec![&removal, &create_a, &create_b],
+        vec![&create_b, &removal, &create_a],
+        vec![&removal, &create_b, &create_a],
+    ];
+
+    let mut roots = Vec::new();
+    for (i, order) in orders.iter().enumerate() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = bootstrapped(dir.path(), 0xD0 + i as u128);
+        for op in order {
+            core.apply_op(op).unwrap();
+        }
+        assert_eq!(
+            names(&core, "/"),
+            vec!["shared".to_string()],
+            "B's creation was not observed by the removal, so it must survive (order {i})"
+        );
+        roots.push(core.compute_state_root().unwrap());
+    }
+
+    assert!(
+        roots.windows(2).all(|w| w[0] == w[1]),
+        "every arrival order must produce the same state"
+    );
+}
+
+#[test]
+fn a_rename_waits_for_the_creation_it_observed() {
+    // A rename that arrives first cannot know which inode it is moving, so it parks
+    // rather than being dropped — dropping it would leave the entry under its old name
+    // here and under the new one on a replica that saw the creation first.
+    let id = Identity::generate();
+
+    let create = signed_op(&id, 0xA1, 1, 1_000, mkdir(ROOT_INODE, "before"));
+    let rename_op = signed_op(
+        &id,
+        0xB2,
+        1,
+        2_000,
+        rename(ROOT_INODE, "before", ROOT_INODE, "after", &[op_id(0xA1, 1)]),
+    );
+
+    let forward_dir = tempfile::tempdir().unwrap();
+    let forward = bootstrapped(forward_dir.path(), 0xE1);
+    forward.apply_op(&create).unwrap();
+    forward.apply_op(&rename_op).unwrap();
+
+    let reverse_dir = tempfile::tempdir().unwrap();
+    let reverse = bootstrapped(reverse_dir.path(), 0xE2);
+    let outcome = reverse.apply_op(&rename_op).unwrap();
+    assert!(
+        matches!(outcome, nexusfs_core::ApplyOutcome::Pending(_)),
+        "a rename whose source has not arrived must park, not vanish"
+    );
+    reverse.apply_op(&create).unwrap();
+
+    assert_eq!(names(&forward, "/"), vec!["after".to_string()]);
+    assert_eq!(names(&reverse, "/"), vec!["after".to_string()]);
+    assert_eq!(
+        forward.compute_state_root().unwrap(),
+        reverse.compute_state_root().unwrap()
+    );
 }

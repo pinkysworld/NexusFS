@@ -476,7 +476,7 @@ fn describe_op(kind: &nexusfs_proto::FsOpKind) -> String {
         Rename {
             old_name, new_name, ..
         } => format!("rename {old_name} -> {new_name}"),
-        Unlink { parent, name } => format!("unlink {name} from {parent:x}"),
+        Unlink { parent, name, .. } => format!("unlink {name} from {parent:x}"),
         SetAttr { inode, .. } => format!("setattr {inode:x}"),
     }
 }

@@ -265,7 +265,12 @@ async fn list_objects(
         .walk(&resource)
         .map_err(|e| internal(e, &resource))?;
     let prefix = q.prefix.unwrap_or_default();
-    let max_keys = q.max_keys.unwrap_or(MAX_KEYS_LIMIT).min(MAX_KEYS_LIMIT);
+    // Floor of one: a page size of zero would report "truncated" forever without ever
+    // emitting the key its continuation token is derived from.
+    let max_keys = q
+        .max_keys
+        .unwrap_or(MAX_KEYS_LIMIT)
+        .clamp(1, MAX_KEYS_LIMIT);
     let strip = format!("{resource}/");
 
     // Directories are not objects in S3; they appear only as common prefixes.
@@ -287,13 +292,28 @@ async fn list_objects(
 
     let mut objects = Vec::new();
     let mut common: Vec<String> = Vec::new();
+    // The last key this page actually consumed, which is what a continuation token has
+    // to name. Taking it from the last *object* loses the page whenever the tail was
+    // common prefixes — including the case where the whole page is prefixes and there
+    // is no object to take it from, leaving a truncated response with no way to
+    // continue.
+    let mut last_key: Option<&str> = None;
+    let mut truncated = false;
 
     for (key, size, mtime) in &keys {
+        if objects.len() + common.len() >= max_keys {
+            truncated = true;
+            break;
+        }
+        last_key = Some(key);
+
         if let Some(delim) = q.delimiter.as_deref().filter(|d| !d.is_empty()) {
             // Everything below the first delimiter after the prefix collapses into one
             // CommonPrefix — how S3 emulates folders over a flat keyspace.
             if let Some(idx) = key[prefix.len()..].find(delim) {
                 let group = format!("{}{}", &key[..prefix.len() + idx], delim);
+                // A key folding into a group already on this page adds nothing, so it
+                // must not count against the page size either.
                 if !common.contains(&group) {
                     common.push(group);
                 }
@@ -309,16 +329,7 @@ async fn list_objects(
         });
     }
 
-    let truncated = objects.len() + common.len() > max_keys;
-    if truncated {
-        objects.truncate(max_keys.min(objects.len()));
-        common.truncate(max_keys.saturating_sub(objects.len()));
-    }
-    let next_token = if truncated {
-        objects.last().map(|o| o.key.clone())
-    } else {
-        None
-    };
+    let next_token = truncated.then(|| last_key.map(str::to_string)).flatten();
 
     Ok((
         [(header::CONTENT_TYPE, "application/xml")],

@@ -67,19 +67,40 @@ pub fn create_file(parent: u128, name: &str) -> FsOpKind {
     }
 }
 
-pub fn unlink(parent: u128, name: &str) -> FsOpKind {
+/// An unlink that observed the entries created by `observed`.
+///
+/// Stating this explicitly is the point: a removal that derives its observed set from
+/// whatever happens to be present when it is applied gives different answers on
+/// replicas that received the same operations in different orders.
+pub fn unlink(parent: u128, name: &str, observed: &[OpId]) -> FsOpKind {
     FsOpKind::Unlink {
         parent,
         name: name.to_string(),
+        observed: observed.to_vec(),
     }
 }
 
-pub fn rename(old_parent: u128, old_name: &str, new_parent: u128, new_name: &str) -> FsOpKind {
+/// The id of an operation, for naming what a removal observed.
+pub fn op_id(device: u128, counter: u64) -> OpId {
+    OpId {
+        device_id: DeviceId(device),
+        counter,
+    }
+}
+
+pub fn rename(
+    old_parent: u128,
+    old_name: &str,
+    new_parent: u128,
+    new_name: &str,
+    observed: &[OpId],
+) -> FsOpKind {
     FsOpKind::Rename {
         old_parent,
         old_name: old_name.to_string(),
         new_parent,
         new_name: new_name.to_string(),
+        observed: observed.to_vec(),
     }
 }
 
