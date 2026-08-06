@@ -80,6 +80,65 @@
 
     <div class="row" style="margin-top: 16px;">
       <div class="card">
+        <h3>Replication</h3>
+        <div id="peersNote" class="muted" style="margin-bottom: 8px;"></div>
+        <table>
+          <thead><tr><th>Peer</th><th>Device</th><th class="num">Ops</th><th class="num">Bytes</th><th>Last result</th></tr></thead>
+          <tbody id="peers"></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h3>Power budget</h3>
+        <table>
+          <tr><td>Source</td><td class="num" id="power">…</td></tr>
+          <tr><td>Battery</td><td class="num" id="battery">…</td></tr>
+          <tr><td>Temperature</td><td class="num" id="temp">…</td></tr>
+          <tr><td>Link</td><td class="num" id="link">…</td></tr>
+          <tr><td>Transferring</td><td class="num" id="budget">…</td></tr>
+        </table>
+        <div id="energyReason" class="muted" style="margin-top: 8px;"></div>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top: 16px;">
+      <div class="card">
+        <h3>Integrity</h3>
+        <div class="muted" style="margin-bottom: 8px;">
+          Reads every file, so it runs on request rather than on every refresh.
+          <button onclick="window.NX.audit()" style="margin-left: 6px;">Run audit</button>
+        </div>
+        <table>
+          <tr><td>Operations audited</td><td class="num" id="vOps">…</td></tr>
+          <tr><td>Bad signatures</td><td class="num" id="vSigs">…</td></tr>
+          <tr><td>Malformed proofs</td><td class="num" id="vMalformed">…</td></tr>
+          <tr><td>Unreadable files</td><td class="num" id="vUnreadable">…</td></tr>
+          <tr><td>Encryption</td><td class="num" id="vEncryption">…</td></tr>
+        </table>
+        <div id="verdict" style="margin-top: 8px;"></div>
+      </div>
+
+      <div class="card">
+        <h3>Reclaimable storage</h3>
+        <div class="muted" style="margin-bottom: 8px;">
+          Walks the whole namespace, so it also runs on request.
+          <button onclick="window.NX.survey()" style="margin-left: 6px;">Survey</button>
+        </div>
+        <table>
+          <tr><td>Blobs</td><td class="num" id="gcScanned">…</td></tr>
+          <tr><td>Reachable</td><td class="num" id="gcReachable">…</td></tr>
+          <tr><td>Unreachable</td><td class="num" id="gcUnreachable">…</td></tr>
+          <tr><td>Could be freed</td><td class="num" id="gcBytes">…</td></tr>
+        </table>
+        <div class="muted" style="margin-top: 8px;">
+          A survey only. Reclaiming needs the store's exclusive lock, so run
+          <code>nexusfs gc --apply</code> with the daemon stopped.
+        </div>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top: 16px;">
+      <div class="card">
         <h3>Recent operations</h3>
         <table>
           <thead><tr><th>Device</th><th>#</th><th>Operation</th><th>State</th></tr></thead>

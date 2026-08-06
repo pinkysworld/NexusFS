@@ -53,7 +53,7 @@
             </article>
             <article class="feature-card">
               <h3>Next</h3>
-              <p>Operational hardening — compaction, garbage collection, and migration tooling.</p>
+              <p>Incremental snapshots, batched storage writes, and collecting orphaned inode records.</p>
             </article>
             <article class="feature-card">
               <h3>Later</h3>
@@ -80,7 +80,7 @@
             <h2>Next unlocks</h2>
             <ul class="list-block">
               <li>Batch storage writes — sled currently fsyncs on every chunk</li>
-              <li>Garbage-collect unreferenced inodes and blobs</li>
+              <li>Rebuild snapshots incrementally rather than walking the whole path</li>
               <li>Prioritise which deferred content to fetch first under a capped budget</li>
               <li>Implement the POSIX/FUSE facade</li>
             </ul>

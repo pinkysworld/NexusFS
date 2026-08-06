@@ -38,10 +38,16 @@ const milestoneData = [
     body: "Replication reads the device's power source, charge, temperature and link cost, then decides how much it may transfer. Under constraint it keeps taking operations and defers content, so a low-battery node stays current on what exists without spending the bytes."
   },
   {
-    label: "M6–M8",
-    title: "Hardening, ZK, privacy",
+    label: "M6",
+    title: "Operational hardening",
+    status: "done",
+    body: "Reclaiming unreachable storage, an enforced on-disk format version with a migration path, and enrolling peer keys ahead of first contact so trust-on-first-use is optional rather than the only route."
+  },
+  {
+    label: "M7–M8",
+    title: "ZK commitments and privacy",
     status: "todo",
-    body: "Operational tooling and failure-mode work, then commitment-oriented proof systems and private metadata research. None of this is started."
+    body: "Commitment-oriented proof systems and private metadata research, feature-gated so the practical baseline never depends on them. Neither is started."
   }
 ];
 

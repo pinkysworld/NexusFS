@@ -6,12 +6,13 @@ This page summarizes what NexusFS currently implements in the repository and wha
 
 ## Overall State
 
-**Milestones M0 through M5 are complete.** NexusFS is a working distributed filesystem:
+**Milestones M0 through M6 are complete.** NexusFS is a working distributed filesystem:
 files round-trip through a signed operation log applied to CRDT-backed namespace state,
 an S3-compatible API exposes that state over HTTP, two nodes converge over QUIC with
 every operation and chunk verified before it is accepted, content can be encrypted at
 rest while still replicating, and replication adapts what it transfers to the device's
-power, thermal and link situation.
+power, thermal and link situation. Operators can reclaim storage, upgrade across on-disk
+formats, and enrol peers without relying on trust-on-first-use.
 
 Not yet implemented: the POSIX/FUSE facade and ZK proofs.
 
@@ -211,6 +212,46 @@ that could contradict it.
 
 Set `energy.enabled = false` to remove every limit while keeping the reading visible.
 
+### Operator Tooling
+
+**Garbage collection.** Mark-and-sweep from two roots: live namespace state, and the
+references held by operations still parked waiting for content. Superseded file
+versions, unlinked content and historical snapshot objects are collectable; anything a
+pending operation needs is not.
+
+The dominant source of garbage is not overwrites. Every applied operation rebuilds the
+snapshot, which orphans the previous `SnapshotRoot` and one `DirNode` per directory on
+the path to the change — so a repository accrues garbage per *operation*, and even an
+append-only history has objects to reclaim.
+
+`nexusfs gc` surveys by default and deletes only with `--apply`. It refuses outright
+when the repository has no head or no root inode record: those indicate corruption or a
+half-finished restore, and marking cannot distinguish "everything is garbage" from
+"marking failed". `/api/storage/gc` reports the same survey and never deletes, because
+the daemon may write between the mark and the sweep.
+
+This is only safe because a superseded write no longer waits for its content. Previously
+an overwritten version parked forever, which meant a node kept asking peers for bytes no
+reader would see — and a peer that had collected them could never answer.
+
+**Format versioning.** The store records the on-disk format it was written with.
+`postcard` carries no field names or type tags, so a decoder handed bytes from a
+different schema does not reliably fail; it can succeed and produce nonsense. The stamp
+converts that into a refusal.
+
+An older format refuses to open and names `nexusfs migrate` as the fix. A newer one
+refuses and cannot be forced. Opening never migrates by itself: a migration rewrites
+records in place, and the operator may have no backup or be mid-rollout. The migration
+machinery is in place; v1 is the first format, so no step is implemented yet.
+
+**Peer enrolment.** The pinned-key store lives in `core`, not in the networking crate,
+so keys can be managed on a build without QUIC and — more to the point — before any
+connection is attempted. `nexusfs peer identity` prints what to enrol elsewhere;
+`peer add`, `peer list` and `peer remove` manage the pinned set. Replacing an existing,
+different key requires `--rotate`, because a silent overwrite would erase the one signal
+distinguishing a planned rotation from an impersonation attempt. Two nodes with
+`net.tofu = false` converge on pre-enrolled keys alone.
+
 ### Browser Playground
 
 `crates/wasm` compiles the core to `wasm32-unknown-unknown` against the in-memory
@@ -226,7 +267,7 @@ daemon uses between real nodes.
 
 ### Test Coverage
 
-85 tests, including order-independent convergence (the same operation set applied in
+115 tests, including order-independent convergence (the same operation set applied in
 different orders yields an identical state root), idempotent re-apply, pending-op drain,
 concurrent-create conflict naming, concurrent-write resolution, rename-vs-unlink,
 subtree-cycle refusal, restart persistence, S3 key mapping and pagination, and
@@ -237,6 +278,12 @@ tampered-ciphertext rejection, replication of encrypted content to peers with an
 without the repository key, the scheduler's decision table across power, charge, heat and
 link cost, and replication actually honouring a metadata-only budget and a byte cap —
 including that a deferred transfer completes on a later unconstrained pass.
+
+M6 adds collection safety (what survives, what the sweep refuses to do, that collecting
+twice is stable and that it does not hide pre-existing damage), format refusals in both
+directions, enrolment and rotation, and failure modes: missing chunks, content that no
+longer matches its hash, forged operations, an unspliceable partial write, and a lost
+head rebuilt from live state.
 
 ## Partially Implemented Or Present As Scaffolding
 
@@ -252,6 +299,8 @@ including that a deferred transfer completes on a later unconstrained pass.
 
 - Detect metered links per platform, so the scheduler's link rule can fire in the field.
 - Replace polling with push notification of new operations.
+- Collect orphaned inode and directory records, not only blobs: collection reclaims
+  content but leaves the KV entries of unlinked inodes behind.
 - Per-recipient key envelopes, so replicas need not share one repository key.
 - Fetch deferred content on demand at read time, so a metadata-only node can serve a file
   the moment it is actually asked for.
@@ -283,7 +332,8 @@ including that a deferred transfer completes on a later unconstrained pass.
 - M3 is complete: two nodes converge over QUIC with verified remote apply.
 - M4 is complete: encryption at rest and transparent proofs.
 - M5 is complete: telemetry, a rule-based scheduler, and replication that honours it.
-- M6 and beyond are backlog, except for crate scaffolding and interface placeholders.
+- M6 is complete: collection, format versioning, peer enrolment and failure-mode cover.
+- M7 and M8 are backlog, except for crate scaffolding and interface placeholders.
 
 ## Recommended Next Step
 
@@ -293,3 +343,6 @@ today a read of that file fails until the next unconstrained sync pass happens t
 the bytes. Pulling the missing chunks when someone actually opens the file is what turns
 "deferred" from a gap into a policy, and it reuses the blob phase of the existing
 session protocol rather than needing new wire format.
+
+After that, M7 is the first commitment-oriented proof. It should stay feature-gated and
+fall back to transparent proofs, so the practical baseline never depends on it.

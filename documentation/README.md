@@ -16,7 +16,7 @@ NexusFS is a single-executable, verifiable distributed file system for edge and 
 
 ## Where The Project Actually Is
 
-**Milestones M0 through M5 are complete.** The local filesystem works: files can be
+**Milestones M0 through M6 are complete.** The local filesystem works: files can be
 created, written, listed, read back, renamed and removed through a signed operation log
 applied to CRDT-backed namespace state, and that state survives restart. Operations
 converge to the same result regardless of the order they arrive in.
@@ -25,7 +25,9 @@ Beyond the local core: an S3-compatible facade exposes that state over HTTP, two
 converge over QUIC with every operation signature and chunk hash verified before it is
 accepted, content can be encrypted at rest without breaking that verification, and
 replication decides how much to transfer from the device's power, thermal and link
-situation — deferring content while still tracking the namespace when constrained.
+situation — deferring content while still tracking the namespace when constrained. And
+operators have real tooling: reclaiming unreachable storage, upgrading across on-disk
+formats, and enrolling peer keys without depending on trust-on-first-use.
 
 **Still unimplemented:** the POSIX/FUSE facade, per-recipient key envelopes (replicas
 share one repository key), metered-link detection, and ZK proofs. `zk_commit` and

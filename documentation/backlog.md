@@ -15,9 +15,10 @@ It is intentionally biased toward execution order, not just feature categories.
 
 ## Recently Completed
 
-Milestones M0 through M5 are done: the local state machine, the S3 facade, QUIC
-replication with verified remote apply, encryption at rest with transparent proofs, and
-energy-aware replication scheduling. See `./current-status.md`.
+Milestones M0 through M6 are done: the local state machine, the S3 facade, QUIC
+replication with verified remote apply, encryption at rest with transparent proofs,
+energy-aware replication scheduling, and operator tooling — collection, format
+versioning and explicit peer enrolment. See `./current-status.md`.
 
 ## Now
 
@@ -57,6 +58,9 @@ energy-aware replication scheduling. See `./current-status.md`.
 
 - Batch storage writes. `SledStore` flushes on every put, costing an fsync per chunk and
   per state record.
+- Rebuild snapshots incrementally. Every applied operation currently re-materializes
+  every directory on the path to the change, which is both the main cost of an apply and
+  the main source of collectable garbage.
 - Cache directory maps. `resolve_path` re-reads and re-materializes each directory per
   path component.
 - Rebuild snapshots incrementally instead of walking the whole tree on every apply.
@@ -103,9 +107,9 @@ energy-aware replication scheduling. See `./current-status.md`.
 
 The most effective execution order right now is:
 
-1. Harden operations: compaction, garbage collection, migration tooling (M6).
-2. Close the energy follow-ups, chiefly on-demand fetch of deferred content.
-3. Start ZK-specific work (M7).
+1. Close the energy follow-ups, chiefly on-demand fetch of deferred content.
+2. Start ZK-specific work (M7), feature-gated, falling back to transparent proofs.
+3. Implement the POSIX/FUSE facade.
 
 ## Definition Of “Ready To Leave Backlog”
 

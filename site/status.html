@@ -35,15 +35,16 @@
         <section class="hero hero-compact reveal">
           <div class="hero-copy">
             <p class="eyebrow">Current Status</p>
-            <h1>Encrypted, replicated, auditable, and power-aware.</h1>
+            <h1>Encrypted, replicated, auditable, and operable.</h1>
             <p class="lede">
-              Milestones M0 through M5 are complete: files round-trip through a signed
+              Milestones M0 through M6 are complete: files round-trip through a signed
               operation log applied to CRDT-backed namespace state, an S3-compatible API
               exposes that state over HTTP, two nodes converge over QUIC with every
               operation and chunk verified before it is accepted, content is encrypted at
-              rest without breaking that verification, and replication now adapts what it
-              transfers to the device's power, heat and link cost. The POSIX facade and
-              ZK proofs are still in the backlog.
+              rest without breaking that verification, replication adapts what it
+              transfers to the device's power, heat and link cost, and operators can
+              reclaim storage, upgrade across on-disk formats and enrol peer keys ahead
+              of first contact. The POSIX facade and ZK proofs are still in the backlog.
             </p>
           </div>
         </section>
@@ -70,6 +71,14 @@
               <p>
                 POSIX/FUSE, privacy and ZK crates exist, but remain placeholders or
                 partially wired layers.
+              </p>
+            </article>
+            <article class="feature-card">
+              <h3>Operator tooling</h3>
+              <p>
+                <code>verify</code> audits, <code>gc</code> reclaims, <code>migrate</code>
+                upgrades the on-disk format, and <code>peer</code> enrols keys before
+                first contact.
               </p>
             </article>
             <article class="feature-card">
@@ -100,6 +109,7 @@
               <li>At-rest encryption with per-file keys, still verifiable by peers</li>
               <li>Signed transparent proofs and a <code>verify</code> audit command</li>
               <li>Energy-aware replication budgets, observable at <code>/api/energy</code></li>
+              <li>Garbage collection, an enforced format version, and peer enrolment</li>
             </ul>
           </div>
           <div class="content-panel">
@@ -109,6 +119,7 @@
               <li>On-demand fetch of content a constrained node deferred</li>
               <li>Metered-link detection, so that scheduler rule can fire in the field</li>
               <li>Per-recipient key envelopes, so replicas need not share one key</li>
+              <li>Collecting orphaned inode records, not only unreachable blobs</li>
               <li>Zero-knowledge proof modes</li>
             </ul>
           </div>

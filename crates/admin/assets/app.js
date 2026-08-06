@@ -103,6 +103,94 @@
     }
   }
 
+  async function renderPeers() {
+    const body = document.getElementById("peers");
+    body.textContent = "";
+    const data = await getJson("/api/peers");
+
+    if (!data.enabled) {
+      document.getElementById("peersNote").textContent =
+        "Replication is not running in this build.";
+      return;
+    }
+    if (!data.peers.length) {
+      document.getElementById("peersNote").textContent =
+        "No peer contacted yet.";
+      return;
+    }
+    document.getElementById("peersNote").textContent = "";
+
+    for (const p of data.peers) {
+      const row = body.insertRow();
+      cell(row, p.address);
+      cell(row, p.device_id ? p.device_id.slice(0, 8) + "\u2026" : "\u2014", "dim");
+      cell(row, p.ops_received, "num");
+      cell(row, formatBytes(p.content_bytes || 0), "num");
+      if (p.last_error) {
+        cell(row, p.last_error, "err");
+      } else if (p.content_deferred) {
+        // Worth distinguishing from "up to date": the namespace is current but the
+        // budget stopped short of fetching every byte.
+        cell(row, "synced, content deferred");
+      } else if (p.last_success_ms) {
+        cell(row, "synced", "dim");
+      } else {
+        cell(row, "no contact yet", "dim");
+      }
+    }
+  }
+
+  async function renderEnergy() {
+    const e = await getJson("/api/energy");
+    setText("power", e.power);
+    setText("battery", e.battery_pct == null ? "\u2014" : `${e.battery_pct}%`);
+    setText("temp", e.temp_c == null ? "\u2014" : `${e.temp_c} \u00b0C`);
+    setText("link", e.link);
+
+    let budget;
+    if (!e.sync) {
+      budget = "paused";
+    } else if (!e.content) {
+      budget = "operations only";
+    } else if (e.max_content_bytes != null) {
+      budget = `capped at ${formatBytes(e.max_content_bytes)}`;
+    } else {
+      budget = "unlimited";
+    }
+    setText("budget", budget);
+
+    const note = document.getElementById("energyReason");
+    note.textContent = e.enabled
+      ? e.reason
+      : "Energy-aware scheduling is off; the reading is informational.";
+  }
+
+  // Both of the following read the whole repository, so neither belongs on the refresh
+  // path — a console that quietly re-audits every few seconds is a console nobody
+  // leaves open.
+  async function renderIntegrity() {
+    const v = await getJson("/api/security");
+    setText("vOps", v.ops_total);
+    setText("vSigs", v.signature_failures);
+    setText("vMalformed", v.malformed_proofs);
+    setText("vUnreadable", v.unreadable_files.length);
+    setText("vEncryption", v.encryption_at_rest ? "on" : "off");
+
+    const verdict = document.getElementById("verdict");
+    verdict.textContent = v.healthy
+      ? "repository verified"
+      : "verification found problems";
+    verdict.className = v.healthy ? "muted" : "err";
+  }
+
+  async function renderGc() {
+    const g = await getJson("/api/storage/gc");
+    setText("gcScanned", g.blobs_scanned);
+    setText("gcReachable", g.reachable);
+    setText("gcUnreachable", g.unreachable);
+    setText("gcBytes", formatBytes(g.bytes_reclaimable));
+  }
+
   function navigate(path) {
     currentPath = path;
     renderListing().catch(showError);
@@ -132,11 +220,18 @@
 
       await renderListing();
       await renderOps();
+      await renderPeers();
+      await renderEnergy();
     } catch (e) {
       showError(e);
     }
   }
 
-  window.NX = { refresh, navigate };
+  window.NX = {
+    refresh,
+    navigate,
+    audit: () => renderIntegrity().catch(showError),
+    survey: () => renderGc().catch(showError),
+  };
   refresh();
 })();

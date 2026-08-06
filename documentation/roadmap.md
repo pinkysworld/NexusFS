@@ -22,7 +22,8 @@ The key rule is simple: every milestone must leave behind a repository that stil
 - `M3` complete: two nodes converge over QUIC
 - `M4` complete: encryption at rest and transparent proofs
 - `M5` complete: energy-aware replication scheduling
-- `M6` next
+- `M6` complete: operator tooling and failure-mode cover
+- `M7` next
 
 The workspace, daemon, storage baseline, docs, and the local filesystem core are real: a
 signed operation log drives CRDT-backed namespace state, files round-trip through the CLI,
@@ -209,7 +210,7 @@ Exit criteria:
 
 ### M6: Operational Hardening
 
-Status: Not started
+Status: Complete
 
 Primary goal:
 
@@ -217,16 +218,25 @@ Primary goal:
 
 Deliverables:
 
-- storage accounting and cleanup
-- integrity verification commands
-- migration support
-- improved trust onboarding
-- broader integration and failure-mode tests
+- storage accounting and cleanup — done: `nexusfs gc`, surveying by default, plus
+  `/api/storage/gc` for a read-only view from the running daemon
+- integrity verification commands — done in M4 as `nexusfs verify`, and extended here
+  with tests proving it reports damage rather than absorbing it
+- migration support — done: an on-disk format stamp, refusal in both directions, and
+  `nexusfs migrate` with the step machinery in place
+- improved trust onboarding — done: `nexusfs peer identity|list|add|remove`, making
+  `net.tofu = false` usable
+- broader integration and failure-mode tests — done: 30 new tests across collection,
+  format, enrolment and damage
 
 Exit criteria:
 
-- operators can inspect, recover, and maintain state with built-in tooling
-- upgrade paths are documented and testable
+- operators can inspect, recover, and maintain state with built-in tooling — met:
+  `status`, `verify`, `gc`, `migrate` and `peer`, each with an admin-API counterpart
+  where safe to expose
+- upgrade paths are documented and testable — met: the format stamp is enforced on every
+  open path and covered by tests in both directions; the first real migration has a
+  documented shape to follow
 
 ### M7: ZK Commitments
 
@@ -278,7 +288,7 @@ The preferred delivery order is:
 3. Complete M3 replication
 4. Add M4 encryption and transparent proofs (done)
 5. Integrate M5 energy-aware scheduling (done)
-6. Harden operations in M6
+6. Harden operations in M6 (done)
 7. Introduce M7 ZK commitments
 8. Expand research work in M8
 

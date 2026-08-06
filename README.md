@@ -5,13 +5,14 @@
 A Rust workspace building toward a verifiable, offline-first distributed filesystem in a
 single binary.
 
-> **Status — milestones M0–M5 of 8 complete.** Files round-trip through a signed
+> **Status — milestones M0–M6 of 8 complete.** Files round-trip through a signed
 > operation log applied to CRDT-backed namespace state, an S3-compatible facade exposes
 > that state over HTTP, **two nodes converge over QUIC** with every operation and chunk
 > verified before it is accepted, **content can be encrypted at rest** while still
 > replicating, and **replication now adapts to the device's power situation** — deferring
 > content while still tracking the namespace when the battery is low, the machine is hot,
-> or the link is metered. The POSIX/FUSE facade and ZK proofs are **not implemented
+> or the link is metered. Operators get **garbage collection, format versioning and
+> explicit peer enrolment**. The POSIX/FUSE facade and ZK proofs are **not implemented
 > yet**. See [`documentation/current-status.md`](documentation/current-status.md).
 
 ## Try it in your browser
@@ -71,7 +72,8 @@ cargo run -p nexusfs -- cat --config ./nexusfs.toml /docs/a.txt
 cargo run -p nexusfs -- status --config ./nexusfs.toml
 ```
 
-Commands: `mkdir [-p]`, `put`, `cat`, `ls`, `rm`, `mv`, `status`, `verify`, `daemon`.
+Commands: `mkdir [-p]`, `put`, `cat`, `ls`, `rm`, `mv`, `status`, `verify`, `gc`,
+`migrate`, `peer`, `daemon`.
 
 Run the daemon for the admin console on <http://127.0.0.1:7070>:
 
@@ -146,6 +148,69 @@ works as a cron or CI check. The same report is served at `/api/security`.
 and the wire, not one peer from another. File names, directory structure and file sizes
 are not encrypted. `zk_commit` and `zk_full` are accepted as config values but are not
 implemented, and behave as `none` rather than pretending to prove anything.
+
+---
+
+## Operating a repository
+
+### Reclaiming storage
+
+Nothing is overwritten in place, so a repository grows even when files do not. The
+larger source is not overwrites but snapshots: every applied operation rebuilds the
+snapshot, orphaning the previous one and a directory object for each level on the path
+to the change. Storage therefore accrues per *operation*, and an append-only history
+still has plenty to reclaim.
+
+```bash
+cargo run -p nexusfs -- gc --config ./nexusfs.toml
+```
+
+That surveys and prints what could be freed. Add `--apply` to actually delete. The
+survey is the default because the failure modes are asymmetric — an unnecessary report
+costs a walk of the namespace, an unnecessary delete costs data.
+
+What survives: everything reachable from live state, and everything a parked operation
+still refers to. What goes: superseded file versions, unlinked content, and old snapshot
+objects. `/api/storage/gc` reports the same survey but never deletes, because the daemon
+could write a blob between the mark and the sweep.
+
+Collection refuses outright if the repository has no head or no root inode record —
+those mean corruption or a half-finished restore, which is exactly when deleting is
+worst.
+
+### Upgrading across formats
+
+The store records the on-disk format it was written with. A build that finds an older
+one refuses to open it and tells you to migrate; a build that finds a *newer* one
+refuses and cannot be forced, because it cannot know what the later format means.
+
+```bash
+cargo run -p nexusfs -- migrate --config ./nexusfs.toml
+```
+
+Opening never migrates on its own. A migration rewrites records in place, and you may
+have no backup, or be running the wrong binary, or be mid-rollout across several nodes.
+Refusing costs one command.
+
+### Enrolling peers without trust-on-first-use
+
+TOFU is convenient and wrong whenever first contact could be intercepted. Set
+`net.tofu = false` and enrol keys directly. On each node:
+
+```bash
+cargo run -p nexusfs -- peer identity --config ./nexusfs.toml
+```
+
+That prints the device id, the public key, and the exact command to run on the other
+node. Then:
+
+```bash
+cargo run -p nexusfs -- peer add --config ./nexusfs.toml <device-id> <pubkey>
+```
+
+`peer list` shows what is enrolled and `peer remove` forgets a key. Enrolling a
+*different* key for a known device needs `--rotate`: overwriting silently would erase
+the one signal that separates a planned rotation from an impersonation attempt.
 
 ---
 
