@@ -444,3 +444,80 @@ async fn an_unlimited_budget_is_indistinguishable_from_no_budget() {
     assert!(!outcome.content_deferred);
     assert_eq!(b.read("/notes/plain.txt"), "hello");
 }
+
+// --- loop termination --------------------------------------------------------
+//
+// The Have/OpsBatch exchange advances by our clock summary, which is the highest
+// *contiguous* counter per device. An operation we refuse never enters the log, so the
+// summary stops below it — and the peer keeps answering with the identical batch.
+
+/// Build a signed operation with a chosen device and counter.
+///
+/// `make_op` allocates a counter from local state, which is exactly what these tests
+/// need to control.
+fn signed_op(
+    identity: &Identity,
+    device: u128,
+    counter: u64,
+    time_unix_ms: u64,
+    kind: nexusfs_proto::FsOpKind,
+) -> nexusfs_proto::FsOp {
+    let mut op = nexusfs_proto::FsOp {
+        id: nexusfs_proto::OpId {
+            device_id: DeviceId(device),
+            counter,
+        },
+        time_unix_ms,
+        ctx: nexusfs_proto::CausalCtx { deps: vec![] },
+        kind,
+        author_pubkey: identity.pubkey_bytes(),
+        sig: Vec::new(),
+        proof: None,
+    };
+    op.sig = nexusfs_crypto::sign(identity.signing_key(), &op.signing_bytes().unwrap());
+    op
+}
+
+fn mkdir_op(name: &str) -> nexusfs_proto::FsOpKind {
+    nexusfs_proto::FsOpKind::Mkdir {
+        parent: nexusfs_core::ROOT_INODE,
+        name: name.to_string(),
+        mode: 0o40755,
+    }
+}
+
+#[tokio::test]
+async fn a_rejected_operation_low_in_the_log_does_not_spin_the_session() {
+    let a = node(1, 1, true);
+    let b = node(2, 2, true);
+
+    // More operations than one batch holds, all from one device, with the *first*
+    // refused. Our contiguous counter for that device can never pass zero, so every
+    // later Have asks for the identical window and nothing in it can be applied.
+    let author = Identity::from_seed([9u8; 32]);
+    let mut forged = signed_op(&author, 0xBB, 1, 1_000, mkdir_op("poisoned"));
+    forged.kind = mkdir_op("tampered-after-signing");
+    a.ctx.core.append_op(&forged).unwrap();
+
+    for counter in 2..=300u64 {
+        let op = signed_op(
+            &author,
+            0xBB,
+            counter,
+            1_000 + counter,
+            mkdir_op(&format!("d{counter}")),
+        );
+        a.ctx.core.apply_op(&op).unwrap();
+    }
+
+    let outcome = pull(&b, &a).await.unwrap();
+
+    assert!(
+        outcome.ops_received < 1_500,
+        "the session re-requested the same window instead of stopping: {} operations \
+         received from a peer holding 300",
+        outcome.ops_received
+    );
+    // The healthy operations still land; only the poisoned one is dropped.
+    assert_eq!(b.listing("/").len(), 299);
+}

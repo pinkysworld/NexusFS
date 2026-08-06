@@ -169,8 +169,11 @@
       const nameCell = row.insertCell();
       const open = el("button", "link", entry.name);
       const target = joinPath(currentPath, entry.name);
+      // openFile is async, so its rejection needs catching here or a file that cannot
+      // be read — a missing chunk, the wrong repository key — fails silently. That is
+      // precisely the case an operator opens the console to investigate.
       open.onclick = () =>
-        entry.kind === "dir" ? navigate(target) : openFile(target);
+        entry.kind === "dir" ? navigate(target) : openFile(target).catch(fail);
       nameCell.appendChild(open);
 
       cell(row, entry.kind, "dim");

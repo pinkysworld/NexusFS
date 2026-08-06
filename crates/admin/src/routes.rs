@@ -20,9 +20,24 @@ fn require_token(headers: &HeaderMap, expected: &str) -> Result<(), StatusCode> 
         return Ok(());
     }
     match headers.get("x-nexusfs-token").and_then(|v| v.to_str().ok()) {
-        Some(t) if t == expected => Ok(()),
+        Some(t) if constant_time_eq(t.as_bytes(), expected.as_bytes()) => Ok(()),
         _ => Err(StatusCode::UNAUTHORIZED),
     }
+}
+
+/// Compare two secrets without leaking their common prefix through timing.
+///
+/// `==` short-circuits at the first mismatch. The console is expected on loopback, where
+/// this is hard to exploit, but nothing enforces that and the fix is three lines.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
 }
 
 /// Surface the real error to the operator instead of a bare 500 — this console

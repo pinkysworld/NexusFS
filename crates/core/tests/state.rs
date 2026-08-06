@@ -101,12 +101,13 @@ fn ops_missing_for_respects_what_the_peer_already_has() {
     }
 
     // A peer that has nothing should be offered everything.
-    let empty = nexusfs_proto::ClockSummary { entries: vec![] };
+    let empty = nexusfs_proto::ClockSummary::default();
     assert_eq!(core.ops_missing_for(&empty, 100).unwrap().len(), 4);
 
     // A peer already holding the first two should be offered only the last two.
     let partial = nexusfs_proto::ClockSummary {
         entries: vec![(nexusfs_proto::DeviceId(0x0c), 2)],
+        above: vec![],
     };
     let missing = core.ops_missing_for(&partial, 100).unwrap();
     assert_eq!(missing.len(), 2);
@@ -115,9 +116,21 @@ fn ops_missing_for_respects_what_the_peer_already_has() {
     // A caught-up peer should be offered nothing.
     let caught_up = nexusfs_proto::ClockSummary {
         entries: vec![(nexusfs_proto::DeviceId(0x0c), 4)],
+        above: vec![],
     };
     assert!(core.ops_missing_for(&caught_up, 100).unwrap().is_empty());
 
     // The limit bounds a batch.
     assert_eq!(core.ops_missing_for(&empty, 3).unwrap().len(), 3);
+
+    // A peer holding operations *above* a gap is not offered them again. Without this
+    // an operation it has permanently refused would pin its watermark, and every round
+    // would re-send the identical window while everything past it stayed unreachable.
+    let with_gap = nexusfs_proto::ClockSummary {
+        entries: vec![(nexusfs_proto::DeviceId(0x0c), 0)],
+        above: vec![(nexusfs_proto::DeviceId(0x0c), vec![2, 3, 4])],
+    };
+    let missing = core.ops_missing_for(&with_gap, 100).unwrap();
+    assert_eq!(missing.len(), 1, "only the gap itself should be offered");
+    assert_eq!(missing[0].id.counter, 1);
 }

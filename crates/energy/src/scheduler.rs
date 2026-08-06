@@ -121,10 +121,14 @@ impl Default for Thresholds {
 
 impl Thresholds {
     /// Derive the critical threshold from the low one when it is not set explicitly.
+    ///
+    /// Clamped to at most `battery_low_pct`. Without that, a low threshold of 1 would
+    /// derive a critical threshold of 2 and invert the ladder: the device would stop
+    /// syncing entirely at a charge the operator asked to merely conserve at.
     pub fn from_config(battery_low_pct: u8, temp_high_c: i16) -> Self {
         Self {
             battery_low_pct,
-            battery_critical_pct: (battery_low_pct / 4).max(2),
+            battery_critical_pct: (battery_low_pct / 4).max(2).min(battery_low_pct),
             temp_high_c,
             ..Self::default()
         }

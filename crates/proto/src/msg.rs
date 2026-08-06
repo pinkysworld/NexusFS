@@ -17,10 +17,26 @@ pub struct SignedHead {
     pub sig: Vec<u8>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// What a node already holds, per device.
+///
+/// A contiguous watermark alone is not enough. A node that refuses one operation — a
+/// bad signature is permanent, not transient — would pin its watermark below that
+/// counter forever, and a peer answering only from the watermark would resend the same
+/// window every round while everything above it stayed unreachable.
+///
+/// So the summary also carries the counters held *above* the watermark. The gap stays
+/// visible, which is what allows the refused operation to be offered again if it is ever
+/// replaced, while everything past it still transfers.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClockSummary {
-    /// Highest contiguous counter applied for each device.
+    /// Highest contiguous counter held for each device.
     pub entries: Vec<(DeviceId, u64)>,
+    /// Counters held above that watermark, sorted, per device.
+    ///
+    /// Bounded by the sender: an unbounded list would let a fragmented history grow the
+    /// frame without limit. Truncation is safe — it only costs a resend.
+    #[serde(default)]
+    pub above: Vec<(DeviceId, Vec<u64>)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

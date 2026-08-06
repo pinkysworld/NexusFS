@@ -190,7 +190,7 @@ where
                 next_id(),
                 None,
                 Msg::Have {
-                    summary,
+                    summary: summary.clone(),
                     head: None,
                 },
             ),
@@ -228,6 +228,23 @@ where
         }
 
         if !more {
+            break;
+        }
+
+        // The peer answers relative to our clock summary, which only advances on the
+        // highest *contiguous* counter per device. An operation we refuse never enters
+        // the log, so a single unverifiable one low in a device's history pins the
+        // summary below it — and every subsequent round asks for, and is served, the
+        // identical window. Without this the session spins until `MAX_OPS_PER_SESSION`
+        // trips, on every pass, forever.
+        //
+        // Comparing summaries is the exact test: any genuinely new operation advances
+        // one, because the summary counts what has been *received*, not what applied.
+        if ctx.core.clock_summary()? == summary {
+            warn!(
+                peer = %format!("{:x}", peer.0),
+                "peer offered a batch that made no progress; ending the operation phase"
+            );
             break;
         }
     }
@@ -290,6 +307,7 @@ where
             break;
         }
 
+        let before = outcome.blobs_received;
         for (hash, bytes) in blobs {
             // Content addressing is only a guarantee if it is checked. A peer that
             // returns different bytes for a hash we asked for is caught here.
@@ -306,6 +324,19 @@ where
         outcome.ops_applied += ctx.core.retry_pending()?;
 
         if !more {
+            break;
+        }
+
+        // Same reasoning as the operation phase. The wanted set only shrinks when a
+        // blob is stored, so a round that stores nothing while claiming there is more
+        // would repeat the identical request — which is what a peer serving content
+        // that fails its hash check produces.
+        if outcome.blobs_received == before {
+            warn!(
+                peer = %format!("{:x}", peer.0),
+                "peer returned no usable content while reporting more; ending the \
+                 content phase"
+            );
             break;
         }
     }

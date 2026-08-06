@@ -69,17 +69,23 @@ impl CoreState {
     pub fn compute_state_root(&self) -> Result<Hash> {
         let mut inode_map: BTreeMap<u128, Hash> = BTreeMap::new();
         let mut visited: BTreeSet<u128> = BTreeSet::new();
-        self.materialize_tree(ROOT_INODE, &mut inode_map, &mut visited)?;
+        self.materialize_tree(ROOT_INODE, &mut inode_map, &mut visited, true)?;
         Ok(commit_inode_map(&inode_map))
     }
 
-    /// Store the `DirNode` for `inode` and every directory beneath it, recording each
-    /// inode's current object hash. Returns the directory's own hash.
+    /// Walk the live tree, recording each inode's current object hash.
+    ///
+    /// `store` controls whether the `DirNode`s it builds are written to the CAS.
+    /// Snapshotting needs them persisted; garbage collection only needs their hashes,
+    /// and writing there would be worse than pointless — the sled backend flushes on
+    /// every put, so a survey would fsync once per directory while claiming to be
+    /// read-only.
     pub(crate) fn materialize_tree(
         &self,
         inode: u128,
         inode_map: &mut BTreeMap<u128, Hash>,
         visited: &mut BTreeSet<u128>,
+        store: bool,
     ) -> Result<Hash> {
         if !visited.insert(inode) {
             bail!("cycle detected in directory tree at inode {inode:x}");
@@ -93,7 +99,7 @@ impl CoreState {
         for entry in &entries {
             match entry.entry_type {
                 EntryType::Dir => {
-                    self.materialize_tree(entry.inode_id, inode_map, visited)?;
+                    self.materialize_tree(entry.inode_id, inode_map, visited, store)?;
                 }
                 EntryType::File => {
                     if let Some(record) = self.load_inode(entry.inode_id)? {
@@ -132,7 +138,12 @@ impl CoreState {
         };
         dir.canonicalize();
 
-        let hash = self.put_object(&Object::DirNode(dir))?;
+        let object = Object::DirNode(dir);
+        let hash = if store {
+            self.put_object(&object)?
+        } else {
+            self.object_hash(&object)?
+        };
         inode_map.insert(inode, hash);
         Ok(hash)
     }

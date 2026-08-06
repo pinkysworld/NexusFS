@@ -36,13 +36,17 @@
 //!
 //! A repository that reaches nothing is indistinguishable from one whose every object
 //! is garbage, and acting on that mistake deletes the lot. The obvious guard — refuse
-//! when the reachable set comes back empty — does not work, because marking walks the
-//! tree by materializing it: on a repository whose state is gone it would store a fresh
-//! empty root directory and then dutifully report that object as reachable.
+//! when the reachable set comes back empty — does not work: marking walks the tree by
+//! rebuilding it, so a repository whose state is gone still yields one hash, that of a
+//! freshly materialized empty root. The set is non-empty and meaningless.
 //!
 //! So the preconditions are checked first, against the two things every live repository
 //! has: a head, and a root inode record. Missing either means corruption or a
 //! half-finished restore, which is exactly when deleting is worst.
+//!
+//! Marking writes nothing. It rebuilds each directory object in memory and takes its
+//! hash, which is what keeps a survey genuinely read-only — the sled backend flushes on
+//! every put, so storing during a walk would fsync once per directory.
 //!
 //! The same caution is why the admin endpoint only ever surveys: the daemon could write
 //! a blob between the mark and the sweep, and that blob would look like garbage.
@@ -95,12 +99,11 @@ impl CoreState {
         }
 
         // Walking the live tree yields a hash per inode: a `DirNode` for directories,
-        // a `FileNode` for files. Re-storing what it finds is harmless — the objects
-        // are reachable by definition, and content addressing makes the write a no-op
-        // when they are already present.
+        // a `FileNode` for files. Hashes only — marking must not write, or a survey
+        // would fsync once per directory on a store that flushes every put.
         let mut inode_map = std::collections::BTreeMap::new();
         let mut visited = BTreeSet::new();
-        self.materialize_tree(ROOT_INODE, &mut inode_map, &mut visited)
+        self.materialize_tree(ROOT_INODE, &mut inode_map, &mut visited, false)
             .context("walk live namespace state")?;
 
         for hash in inode_map.values() {
@@ -128,10 +131,10 @@ impl CoreState {
 
     /// Why this repository is not safe to sweep, if it is not.
     ///
-    /// Checked *before* marking rather than after, because marking materializes the
-    /// tree it walks: on a repository whose state has been lost it would store a fresh
-    /// empty root directory and then report that object as reachable, making an empty
-    /// result impossible to detect afterwards.
+    /// Checked *before* marking rather than after. Marking rebuilds the tree it walks,
+    /// so even a repository with no state left produces the hash of an empty root — the
+    /// reachable set comes back non-empty and useless, and "nothing was reachable" can
+    /// never be observed.
     fn sweep_blocker(&self) -> Result<Option<String>> {
         if self.get_head()?.is_none() {
             return Ok(Some(

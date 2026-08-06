@@ -27,6 +27,12 @@ const KEY_STATE_TIME: &[u8] = b"state/time";
 
 /// Column-family prefix keys for oplog entries.
 const OP_PREFIX: &[u8] = b"op\0";
+
+/// Cap on the per-device "held above the watermark" list in a clock summary.
+///
+/// A history fragmented by many refusals would otherwise grow the Have frame without
+/// bound. Truncating only costs a redundant resend of operations we already hold.
+const MAX_ABOVE_PER_DEVICE: usize = 4096;
 const APPLIED_PREFIX: &[u8] = b"applied\0";
 
 fn op_key(device_id: DeviceId, counter: u64) -> Vec<u8> {
@@ -107,6 +113,11 @@ impl CoreState {
 
     pub fn encryption_enabled(&self) -> bool {
         self.cipher.is_some()
+    }
+
+    /// The address an object would have, without storing it.
+    pub fn object_hash(&self, obj: &Object) -> Result<Hash> {
+        Ok(hash_bytes(&encode_object(obj)?))
     }
 
     /// Store an encoded object in the CAS keyed by its BLAKE3 hash.
@@ -261,23 +272,36 @@ impl CoreState {
             }
         }
 
-        let entries = seen
-            .into_iter()
-            .map(|(did, counters)| {
-                // Counters start at 1, so walk up from there while each is present.
-                let mut contiguous = 0u64;
-                for c in &counters {
-                    if *c == contiguous + 1 {
-                        contiguous = *c;
-                    } else {
-                        break;
-                    }
-                }
-                (did, contiguous)
-            })
-            .collect();
+        let mut entries = Vec::new();
+        let mut above = Vec::new();
 
-        Ok(ClockSummary { entries })
+        for (did, counters) in seen {
+            // Counters start at 1, so walk up from there while each is present.
+            let mut contiguous = 0u64;
+            for c in &counters {
+                if *c == contiguous + 1 {
+                    contiguous = *c;
+                } else {
+                    break;
+                }
+            }
+
+            // Everything held past the gap. Without this a peer would keep offering
+            // operations we already have, because the watermark cannot move past a
+            // counter we will never accept.
+            let extras: Vec<u64> = counters
+                .range(contiguous + 1..)
+                .take(MAX_ABOVE_PER_DEVICE)
+                .copied()
+                .collect();
+
+            entries.push((did, contiguous));
+            if !extras.is_empty() {
+                above.push((did, extras));
+            }
+        }
+
+        Ok(ClockSummary { entries, above })
     }
 
     /// Operations this node holds that `remote` does not, oldest first.
@@ -285,17 +309,28 @@ impl CoreState {
     /// `limit` bounds a single batch; the caller repeats until nothing is returned.
     pub fn ops_missing_for(&self, remote: &ClockSummary, limit: usize) -> Result<Vec<FsOp>> {
         let known: BTreeMap<DeviceId, u64> = remote.entries.iter().copied().collect();
+        let above: BTreeMap<DeviceId, BTreeSet<u64>> = remote
+            .above
+            .iter()
+            .map(|(did, counters)| (*did, counters.iter().copied().collect()))
+            .collect();
 
         let mut out = Vec::new();
         for (k, v) in self.stores.kv.scan_prefix(CF_OPLOG, OP_PREFIX)? {
             let Some((did, ctr)) = parse_op_key(&k) else {
                 continue;
             };
-            if ctr > known.get(&did).copied().unwrap_or(0) {
-                out.push(decode::<FsOp>(&v)?);
-                if out.len() >= limit {
-                    break;
-                }
+            if ctr <= known.get(&did).copied().unwrap_or(0) {
+                continue;
+            }
+            // Held past the watermark already. Skipping these is what lets a peer make
+            // progress past an operation it has permanently refused.
+            if above.get(&did).is_some_and(|set| set.contains(&ctr)) {
+                continue;
+            }
+            out.push(decode::<FsOp>(&v)?);
+            if out.len() >= limit {
+                break;
             }
         }
         Ok(out)

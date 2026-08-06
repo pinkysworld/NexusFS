@@ -215,3 +215,109 @@ fn garbage_collection_does_not_hide_pre_existing_damage() {
     assert!(!report.ok());
     assert_eq!(report.unreadable_files, vec!["/a.txt".to_string()]);
 }
+
+#[test]
+fn a_write_cannot_claim_more_content_than_it_supplies() {
+    // `new_size` rides inside a signed operation, but a signature proves authorship,
+    // not good faith. Before this was bounded, a peer could name any size it liked and
+    // the splice path would allocate it — `new_size: u64::MAX` meant a zero-filled
+    // allocation of the whole address space.
+    let dir = tempfile::tempdir().unwrap();
+    let core = bootstrapped(dir.path(), 0xA1);
+    let id = Identity::generate();
+
+    let file_inode = nexusfs_core::inode_for_op(OpId {
+        device_id: DeviceId(0xA1),
+        counter: 1,
+    });
+    core.apply_op(&signed_op(
+        &id,
+        0xA1,
+        1,
+        1_000,
+        create_file(ROOT_INODE, "f.txt"),
+    ))
+    .unwrap();
+    core.apply_op(&signed_op(
+        &id,
+        0xA1,
+        2,
+        2_000,
+        write_all(&core, file_inode, b"small"),
+    ))
+    .unwrap();
+
+    let (chunks, encryption) = core.store_content(b"XX").unwrap();
+    let greedy = signed_op(
+        &id,
+        0xA1,
+        3,
+        3_000,
+        FsOpKind::Write {
+            inode: file_inode,
+            offset: 0,
+            chunks,
+            new_size: u64::MAX,
+            encryption: encryption.map(|e| e.sealed_key),
+        },
+    );
+
+    let err = core.apply_op(&greedy).unwrap_err().to_string();
+    assert!(
+        err.contains("supplies only"),
+        "the size claim must be refused, not allocated: {err}"
+    );
+    assert_eq!(core.read_file_path("/f.txt").unwrap(), b"small");
+}
+
+#[test]
+fn a_sparse_write_past_the_end_still_works() {
+    // The bound must not break the legitimate case it sits next to: writing at an
+    // offset beyond the current end, which zero-fills the hole.
+    let dir = tempfile::tempdir().unwrap();
+    let core = bootstrapped(dir.path(), 0xA1);
+    let id = Identity::generate();
+
+    let file_inode = nexusfs_core::inode_for_op(OpId {
+        device_id: DeviceId(0xA1),
+        counter: 1,
+    });
+    core.apply_op(&signed_op(
+        &id,
+        0xA1,
+        1,
+        1_000,
+        create_file(ROOT_INODE, "sparse.bin"),
+    ))
+    .unwrap();
+    core.apply_op(&signed_op(
+        &id,
+        0xA1,
+        2,
+        2_000,
+        write_all(&core, file_inode, b"head"),
+    ))
+    .unwrap();
+
+    let (chunks, encryption) = core.store_content(b"tail").unwrap();
+    core.apply_op(&signed_op(
+        &id,
+        0xA1,
+        3,
+        3_000,
+        FsOpKind::Write {
+            inode: file_inode,
+            offset: 64,
+            chunks,
+            new_size: 68,
+            encryption: encryption.map(|e| e.sealed_key),
+        },
+    ))
+    .unwrap();
+
+    let content = core.read_file_path("/sparse.bin").unwrap();
+    assert_eq!(content.len(), 68);
+    assert_eq!(&content[..4], b"head");
+    assert_eq!(&content[4..64], &[0u8; 60]);
+    assert_eq!(&content[64..], b"tail");
+}

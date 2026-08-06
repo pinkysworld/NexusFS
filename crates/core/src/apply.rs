@@ -418,13 +418,36 @@ impl CoreState {
                 incoming.extend_from_slice(&bytes);
             }
 
-            let mut buffer = vec![0u8; new_size as usize];
+            // The buffer has to be justified by data actually in hand: the bytes the
+            // file already had, or the bytes this write supplies at its offset. A
+            // `new_size` beyond both is an assertion of zero padding no writer here
+            // produces, and honouring it would allocate whatever a peer asked for —
+            // `new_size` arrives inside a signed operation, but a signature only proves
+            // authorship, not good faith.
+            let justified = (existing.len() as u64).max(
+                offset
+                    .checked_add(incoming.len() as u64)
+                    .context("write offset plus length overflows")?,
+            );
+            if new_size > justified {
+                bail!(
+                    "write claims size {new_size} but supplies only {justified} bytes \
+                     of content"
+                );
+            }
+
+            // usize is 32-bit on wasm32, where a silent truncation here would make the
+            // browser build compute a different file than a native replica — and the
+            // state root would disagree.
+            let total = usize::try_from(new_size).context("file too large for this platform")?;
+
+            let mut buffer = vec![0u8; total];
             let keep = (existing.len() as u64).min(new_size) as usize;
             buffer[..keep].copy_from_slice(&existing[..keep]);
 
-            let start = offset as usize;
-            let end = (start + incoming.len()).min(buffer.len());
+            let start = usize::try_from(offset).context("offset too large for this platform")?;
             if start < buffer.len() {
+                let end = start.saturating_add(incoming.len()).min(buffer.len());
                 buffer[start..end].copy_from_slice(&incoming[..end - start]);
             }
 

@@ -11,7 +11,7 @@
 
 use axum::{
     body::Bytes,
-    extract::{Path, Query, State},
+    extract::{DefaultBodyLimit, Path, Query, State},
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::get,
@@ -27,6 +27,15 @@ use crate::S3State;
 /// S3 caps a single listing page at 1000 keys.
 const MAX_KEYS_LIMIT: usize = 1000;
 
+/// Largest object this facade accepts in one request.
+///
+/// A PUT is buffered whole before it is chunked, so this is a real memory bound rather
+/// than a policy. It has to be stated explicitly: axum defaults `Bytes` to 2 MB, which
+/// silently made every upload above that fail with a framework error that was not even
+/// S3-shaped. Larger objects need multipart upload, which this subset does not
+/// implement yet.
+const MAX_OBJECT_BYTES: usize = 64 * 1024 * 1024;
+
 pub fn router(state: S3State) -> Router {
     Router::new()
         .route("/", get(list_buckets))
@@ -39,6 +48,7 @@ pub fn router(state: S3State) -> Router {
                 .put(put_object)
                 .delete(delete_object),
         )
+        .layer(DefaultBodyLimit::max(MAX_OBJECT_BYTES))
         .with_state(state)
 }
 
@@ -109,7 +119,7 @@ fn check_auth(headers: &HeaderMap, st: &S3State, resource: &str) -> Result<(), S
     let ok = headers
         .get("x-nexusfs-token")
         .and_then(|v| v.to_str().ok())
-        .map(|t| t == st.token)
+        .map(|t| constant_time_eq(t.as_bytes(), st.token.as_bytes()))
         .unwrap_or(false);
 
     if ok {
@@ -122,6 +132,22 @@ fn check_auth(headers: &HeaderMap, st: &S3State, resource: &str) -> Result<(), S
             resource.into(),
         ))
     }
+}
+
+/// Compare two secrets without leaking their common prefix through timing.
+///
+/// `==` on strings short-circuits at the first mismatch. Over a loopback interface that
+/// is unlikely to be measurable, but the facade is not required to stay on loopback and
+/// the fix costs nothing.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
 }
 
 // --- key mapping -----------------------------------------------------------
@@ -316,8 +342,10 @@ async fn put_object(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, S3Error> {
+    // Authenticate before validating the key: otherwise an anonymous caller can tell a
+    // malformed key (400) from a rejected one (403) and probe the namespace shape.
+    check_auth(&headers, &st, &format!("/{bucket}/{key}"))?;
     let path = object_path(&bucket, &key)?;
-    check_auth(&headers, &st, &path)?;
 
     st.core
         .write_file(&st.identity, &path, &body, now_ms())
