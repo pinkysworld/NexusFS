@@ -240,6 +240,7 @@ pub async fn run_daemon(config_path: PathBuf) -> Result<()> {
             token: admin_token.clone(),
             peers,
             energy: Some(energy_gate.clone() as Arc<dyn nexusfs_admin::EnergySource>),
+            node_pubkey: Some(identity.pubkey_bytes()),
         };
         tokio::spawn(async move {
             if let Err(e) = nexusfs_admin::serve(addr, st).await {

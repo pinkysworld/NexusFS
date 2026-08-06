@@ -45,6 +45,9 @@ pub fn router(state: AdminState) -> Router {
         .route("/api/energy", get(energy))
         .route("/api/storage/gc", get(storage_gc))
         .route("/api/security", get(security))
+        .route("/api/identity", get(identity))
+        .route("/api/peers/enrolled", get(enrolled_peers))
+        .route("/api/fs/cat", get(fs_cat))
         .with_state(state)
 }
 
@@ -70,6 +73,10 @@ struct Status {
     applied: usize,
     pending: usize,
     now_ms: u64,
+    /// The on-disk format the store is stamped with. `None` on a store that has not
+    /// been opened by a versioning-aware build yet, which should not happen in practice
+    /// because opening stamps it.
+    format_version: Option<u32>,
 }
 
 async fn status(
@@ -86,11 +93,127 @@ async fn status(
             applied: st.core.applied_count()?,
             pending: st.core.pending_count()?,
             now_ms: nexusfs_core::now_ms(),
+            format_version: st.core.format_version()?,
         })
     };
     Ok(Json(
         build().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
     ))
+}
+
+#[derive(Serialize)]
+struct IdentityResp {
+    device_id: String,
+    /// Hex ed25519 public key, or `None` on a build that did not supply one.
+    pubkey: Option<String>,
+    format_version: Option<u32>,
+    /// The format this build expects, so a mismatch is visible without reading logs.
+    expects_format: u32,
+    build_version: &'static str,
+}
+
+/// What another node needs in order to enrol this one.
+///
+/// Both fields are public by construction — a device id is an opaque identifier and the
+/// key is the public half — so this carries nothing the peer would not learn on its
+/// first handshake anyway.
+async fn identity(
+    State(st): State<AdminState>,
+    headers: HeaderMap,
+) -> Result<Json<IdentityResp>, (StatusCode, String)> {
+    require_token(&headers, &st.token).map_err(|c| (c, "unauthorized".into()))?;
+    Ok(Json(IdentityResp {
+        device_id: format!("{:x}", st.core.device_id.0),
+        pubkey: st.node_pubkey.map(hex::encode),
+        format_version: st.core.format_version().map_err(server_error)?,
+        expects_format: nexusfs_core::CURRENT_FORMAT_VERSION,
+        build_version: env!("CARGO_PKG_VERSION"),
+    }))
+}
+
+#[derive(Serialize)]
+struct EnrolledPeerResp {
+    device_id: String,
+    pubkey: String,
+}
+
+/// The keys this node has pinned.
+///
+/// Distinct from `/api/peers`, which reports the *sync* targets and how they are doing.
+/// A device can be trusted without being a configured peer (it may connect inbound), and
+/// a configured peer may not be trusted yet — so conflating the two lists would hide
+/// exactly the mismatch an operator is looking for.
+async fn enrolled_peers(
+    State(st): State<AdminState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<EnrolledPeerResp>>, (StatusCode, String)> {
+    require_token(&headers, &st.token).map_err(|c| (c, "unauthorized".into()))?;
+    let peers = st.core.enrolled_peers().map_err(server_error)?;
+    Ok(Json(
+        peers
+            .into_iter()
+            .map(|p| EnrolledPeerResp {
+                device_id: format!("{:x}", p.device_id.0),
+                pubkey: hex::encode(p.pubkey),
+            })
+            .collect(),
+    ))
+}
+
+/// Largest file the console will render inline.
+///
+/// The console is for inspecting state, not for transferring data; anything larger is
+/// better fetched with `nexusfs cat`. Capping also stops one click on a multi-gigabyte
+/// file from pinning that much memory in the daemon.
+const MAX_INLINE_BYTES: usize = 256 * 1024;
+
+#[derive(Serialize)]
+struct CatResp {
+    path: String,
+    size: u64,
+    /// "text" when the prefix decoded as UTF-8, "binary" otherwise.
+    kind: &'static str,
+    /// True when `content` holds only the first [`MAX_INLINE_BYTES`].
+    truncated: bool,
+    /// Present for text files only. Binary content is described, never dumped.
+    content: Option<String>,
+    /// Hex of the first bytes, for binary files — enough to recognise a magic number.
+    preview_hex: Option<String>,
+}
+
+async fn fs_cat(
+    State(st): State<AdminState>,
+    headers: HeaderMap,
+    Query(q): Query<LsQuery>,
+) -> Result<Json<CatResp>, (StatusCode, String)> {
+    require_token(&headers, &st.token).map_err(|c| (c, "unauthorized".into()))?;
+
+    let bytes = st.core.read_file_path(&q.path).map_err(server_error)?;
+    let size = bytes.len() as u64;
+    let truncated = bytes.len() > MAX_INLINE_BYTES;
+    let head = &bytes[..bytes.len().min(MAX_INLINE_BYTES)];
+
+    // Decoding the prefix rather than the whole file keeps the check cheap, and a
+    // truncated multi-byte character at the cut is treated as binary rather than
+    // rendered as a replacement glyph.
+    match std::str::from_utf8(head) {
+        Ok(text) => Ok(Json(CatResp {
+            path: q.path,
+            size,
+            kind: "text",
+            truncated,
+            content: Some(text.to_string()),
+            preview_hex: None,
+        })),
+        Err(_) => Ok(Json(CatResp {
+            path: q.path,
+            size,
+            kind: "binary",
+            truncated,
+            content: None,
+            preview_hex: Some(hex::encode(&head[..head.len().min(64)])),
+        })),
+    }
 }
 
 #[derive(Serialize)]
@@ -112,6 +235,24 @@ async fn head(
     }))
 }
 
+#[derive(Serialize)]
+struct ClockEntry {
+    device_id: String,
+    /// Highest counter applied with no gap below it.
+    through: u64,
+}
+
+#[derive(Serialize)]
+struct ClockResp {
+    entries: Vec<ClockEntry>,
+}
+
+/// Per-device replication progress.
+///
+/// Device ids are hex strings here, not numbers. A `DeviceId` is a `u128`, and a JSON
+/// number that large loses precision the moment a JavaScript client parses it — the
+/// console would render a device id that is close to the real one and wrong, which is
+/// worse than not showing it at all.
 async fn oplog_summary(
     State(st): State<AdminState>,
     headers: HeaderMap,
@@ -121,7 +262,16 @@ async fn oplog_summary(
         .core
         .clock_summary()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(Json(sum))
+    Ok(Json(ClockResp {
+        entries: sum
+            .entries
+            .into_iter()
+            .map(|(device, through)| ClockEntry {
+                device_id: format!("{:x}", device.0),
+                through,
+            })
+            .collect(),
+    }))
 }
 
 #[derive(Serialize)]

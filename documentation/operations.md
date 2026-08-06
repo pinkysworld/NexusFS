@@ -37,16 +37,33 @@ header. It serves a small console plus a JSON API:
 
 | Endpoint | Shows |
 | --- | --- |
-| `/api/status` | head, state root, device id, operation and pending counts |
+| `/api/status` | head, state root, device id, counts, on-disk format version |
+| `/api/identity` | this node's device id and public key, for enrolling elsewhere |
 | `/api/fs/head` | the current head hash |
 | `/api/fs/ls?path=` | a directory listing from live namespace state |
-| `/api/oplog/summary` | applied-operation clock summary |
+| `/api/fs/cat?path=` | file contents, capped and binary-aware |
+| `/api/oplog/summary` | per-device replication progress |
 | `/api/oplog/recent?limit=` | the most recent operations |
 | `/api/storage/stats` | blob count and bytes |
 | `/api/peers` | per-peer sync status, errors, and transfer counters |
+| `/api/peers/enrolled` | the pinned trust list |
 | `/api/security` | the same report `nexusfs verify` prints |
 | `/api/energy` | the current power reading, the replication budget, and why |
 | `/api/storage/gc` | a survey of unreachable storage (never deletes) |
+
+The console groups these into five tabs — Overview, Files, Replication, Operations and
+Maintenance. It is **read-only by design**. Every state-changing maintenance action
+needs the store's exclusive lock, which the running daemon holds, so those live at the
+CLI; and trust changes are deliberately not one click away in a browser.
+
+Two panels run on a button rather than on refresh: the integrity audit reads every file,
+and the collection survey walks the whole namespace. Everything else is cheap enough for
+the optional five-second auto-refresh.
+
+Note that `/api/peers` and `/api/peers/enrolled` answer different questions. The first
+lists sync *targets* and how they are doing; the second lists *trusted keys*. A device
+can be trusted without being a target, and a target may not be trusted yet — which is
+exactly the mismatch worth noticing when replication is silently doing nothing.
 
 `/api/energy` is the one to reach for when replication looks slower than expected: its
 `reason` field names the rule that fired, so "battery 14% is at or below the low

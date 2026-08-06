@@ -77,6 +77,11 @@ pub struct AdminState {
     pub peers: Option<Arc<dyn PeerSource>>,
     /// `None` when the daemon is not sampling energy.
     pub energy: Option<Arc<dyn EnergySource>>,
+    /// This node's ed25519 public key, so the console can show what to enrol elsewhere.
+    ///
+    /// Passed in rather than read from an `Identity`, which would make this crate depend
+    /// on `nexusfs-crypto` for one field. It is public key material by definition.
+    pub node_pubkey: Option<[u8; 32]>,
 }
 
 pub async fn serve(bind: SocketAddr, state: AdminState) -> Result<()> {

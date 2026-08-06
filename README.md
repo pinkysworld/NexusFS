@@ -75,7 +75,8 @@ cargo run -p nexusfs -- status --config ./nexusfs.toml
 Commands: `mkdir [-p]`, `put`, `cat`, `ls`, `rm`, `mv`, `status`, `verify`, `gc`,
 `migrate`, `peer`, `daemon`.
 
-Run the daemon for the admin console on <http://127.0.0.1:7070>:
+Run the daemon for the admin console on <http://127.0.0.1:7070> — it browses the
+filesystem, shows replication and power state, and audits the repository on request:
 
 ```bash
 cargo run -p nexusfs -- daemon --config ./nexusfs.toml
