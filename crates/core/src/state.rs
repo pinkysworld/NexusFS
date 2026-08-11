@@ -121,10 +121,17 @@ impl CoreState {
     }
 
     /// Store an encoded object in the CAS keyed by its BLAKE3 hash.
+    ///
+    /// Skips the write when the object is already present. Content addressing makes a
+    /// repeat write a no-op in *content*, but not in work: every snapshot re-materializes
+    /// each directory on the path to the change, and most of those are byte-identical to
+    /// what is already stored.
     pub fn put_object(&self, obj: &Object) -> Result<Hash> {
         let bytes = encode_object(obj)?;
         let h = hash_bytes(&bytes);
-        self.stores.blobs.put(h, &bytes)?;
+        if !self.stores.blobs.has(&h)? {
+            self.stores.blobs.put(h, &bytes)?;
+        }
         Ok(h)
     }
 
@@ -363,6 +370,7 @@ impl CoreState {
         // indistinguishable from one written before versioning existed, and would be
         // adopted as v1 — demanding a migration the moment it was made.
         self.stamp_current_format()?;
+        self.flush()?;
 
         info!(head = %hex::encode(head), "bootstrapped new repository");
         Ok(())
@@ -467,6 +475,16 @@ impl CoreState {
     }
 
     // ---- storage accounting -------------------------------------------------------
+
+    /// Make everything this node has written durable.
+    ///
+    /// Called at operation boundaries. Individual writes do not sync — see
+    /// `BlobStore::flush` for why the operation, not the record, is the unit that
+    /// deserves a disk round trip.
+    pub fn flush(&self) -> Result<()> {
+        self.stores.kv.flush()?;
+        self.stores.blobs.flush()
+    }
 
     pub fn blob_stats(&self) -> Result<(usize, u64)> {
         self.stores.blobs.stats()

@@ -29,9 +29,7 @@ impl SledStore {
 
 impl BlobStore for SledStore {
     fn put(&self, key: Hash, data: &[u8]) -> Result<()> {
-        let t = self.blobs_tree()?;
-        t.insert(key, data)?;
-        t.flush()?;
+        self.blobs_tree()?.insert(key, data)?;
         Ok(())
     }
 
@@ -46,9 +44,7 @@ impl BlobStore for SledStore {
     }
 
     fn delete(&self, key: &Hash) -> Result<()> {
-        let t = self.blobs_tree()?;
-        t.remove(key)?;
-        t.flush()?;
+        self.blobs_tree()?.remove(key)?;
         Ok(())
     }
 
@@ -66,6 +62,13 @@ impl BlobStore for SledStore {
         Ok(out)
     }
 
+    fn flush(&self) -> Result<()> {
+        // One sync for the whole database, not one per tree: sled's log is shared, so
+        // flushing it covers every tree an operation touched.
+        self.db.flush()?;
+        Ok(())
+    }
+
     fn stats(&self) -> Result<(usize, u64)> {
         let t = self.blobs_tree()?;
         let mut count = 0usize;
@@ -81,9 +84,7 @@ impl BlobStore for SledStore {
 
 impl KvStore for SledStore {
     fn put_kv(&self, cf: &str, key: &[u8], val: &[u8]) -> Result<()> {
-        let t = self.kv_tree(cf)?;
-        t.insert(key, val)?;
-        t.flush()?;
+        self.kv_tree(cf)?.insert(key, val)?;
         Ok(())
     }
 
@@ -93,9 +94,7 @@ impl KvStore for SledStore {
     }
 
     fn delete_kv(&self, cf: &str, key: &[u8]) -> Result<()> {
-        let t = self.kv_tree(cf)?;
-        t.remove(key)?;
-        t.flush()?;
+        self.kv_tree(cf)?.remove(key)?;
         Ok(())
     }
 
@@ -126,5 +125,10 @@ impl KvStore for SledStore {
             n += 1;
         }
         Ok(n)
+    }
+
+    fn flush(&self) -> Result<()> {
+        self.db.flush()?;
+        Ok(())
     }
 }

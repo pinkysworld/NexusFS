@@ -13,6 +13,18 @@ pub trait BlobStore: Send + Sync {
     /// `(blob count, total bytes)` for capacity reporting.
     fn stats(&self) -> Result<(usize, u64)>;
 
+    /// Make everything written so far durable.
+    ///
+    /// Writes are *not* individually durable, which is the whole point. Durability
+    /// belongs at the operation boundary, not the record boundary: an operation touches
+    /// a dozen keys, and syncing each one costs a dozen disk round trips to buy a
+    /// guarantee nobody wants — that *half* an operation survives a crash.
+    ///
+    /// Losing a whole operation is the better failure. It is also the one the design
+    /// already tolerates: applying is idempotent, so a replayed or re-fetched operation
+    /// lands exactly once.
+    fn flush(&self) -> Result<()>;
+
     /// Every stored blob as `(hash, stored length)`.
     ///
     /// Hashes and sizes only, never bodies: garbage collection has to walk the whole
@@ -36,6 +48,11 @@ pub trait KvStore: Send + Sync {
 
     /// How many keys sit under `prefix`.
     fn count_prefix(&self, cf: &str, prefix: &[u8]) -> Result<usize>;
+
+    /// Make everything written so far durable.
+    ///
+    /// See [`BlobStore::flush`] for why writes do not do this themselves.
+    fn flush(&self) -> Result<()>;
 }
 
 /// Always available: it has no dependencies and no filesystem, so it is the one

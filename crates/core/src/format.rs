@@ -76,7 +76,10 @@ impl CoreState {
     fn set_format_version(&self, version: u32) -> Result<()> {
         self.stores
             .kv
-            .put_kv(CF_META, KEY_FORMAT_VERSION, &version.to_be_bytes())
+            .put_kv(CF_META, KEY_FORMAT_VERSION, &version.to_be_bytes())?;
+        // The stamp is what a later run trusts to decide whether it may open the store
+        // at all, so it must not be the thing lost to an unclean exit.
+        self.flush()
     }
 
     /// Record that this repository is on the format this build writes.

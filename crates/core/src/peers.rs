@@ -96,10 +96,15 @@ impl CoreState {
             ),
             Some(_) => {
                 self.stores.kv.put_kv(CF_META, &peer_key(device), pubkey)?;
+                // Trust changes do not ride an operation, so they carry their own
+                // durability point rather than relying on the database being dropped
+                // cleanly — which a killed process never does.
+                self.flush()?;
                 Ok(Enrolment::Rotated)
             }
             None => {
                 self.stores.kv.put_kv(CF_META, &peer_key(device), pubkey)?;
+                self.flush()?;
                 Ok(Enrolment::Added)
             }
         }
@@ -114,6 +119,7 @@ impl CoreState {
             return Ok(false);
         }
         self.stores.kv.delete_kv(CF_META, &peer_key(device))?;
+        self.flush()?;
         Ok(true)
     }
 }

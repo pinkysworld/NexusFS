@@ -70,6 +70,11 @@ impl BlobStore for MemStore {
             .collect())
     }
 
+    /// Nothing to make durable: this backend is the memory.
+    fn flush(&self) -> Result<()> {
+        Ok(())
+    }
+
     fn stats(&self) -> Result<(usize, u64)> {
         let blobs = self.blobs.lock().expect("blob map poisoned");
         Ok((blobs.len(), blobs.values().map(|v| v.len() as u64).sum()))
@@ -134,6 +139,10 @@ impl KvStore for MemStore {
             .keys()
             .filter(|(c, k)| c == cf && k.starts_with(prefix))
             .count())
+    }
+
+    fn flush(&self) -> Result<()> {
+        Ok(())
     }
 }
 

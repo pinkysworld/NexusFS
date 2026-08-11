@@ -272,12 +272,24 @@ impl CoreState {
                 report.signature_failures += 1;
             }
 
+            // Dispatch on the declared mode. Decoding without checking it is not just
+            // incomplete but actively wrong: postcard carries no type tags, so a
+            // commitment proof can decode *successfully* as a transparent one and be
+            // misread rather than rejected.
             match &op.proof {
                 None => report.without_proof += 1,
-                Some(bundle) => match decode_proof(&bundle.bytes) {
-                    Ok(_) if bundle.mode != ProofMode::Transparent => report.malformed += 1,
-                    Ok(_) => report.with_proof += 1,
-                    Err(_) => report.malformed += 1,
+                Some(bundle) => match bundle.mode {
+                    ProofMode::Transparent => match decode_proof(&bundle.bytes) {
+                        Ok(_) => report.with_proof += 1,
+                        Err(_) => report.malformed += 1,
+                    },
+                    ProofMode::ZkCommit => match decode_commit(&bundle.bytes) {
+                        // An audit can do better than a structure check here: the
+                        // inclusion path is checkable on its own, so check it.
+                        Ok(proof) if proof.entry.verify(&proof.new_root) => report.with_proof += 1,
+                        _ => report.malformed += 1,
+                    },
+                    _ => report.malformed += 1,
                 },
             }
         }

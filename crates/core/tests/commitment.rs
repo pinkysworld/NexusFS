@@ -169,3 +169,56 @@ fn every_live_entry_can_prove_itself() {
         assert!(proof.verify(&root), "inode {inode:x} failed");
     }
 }
+
+#[test]
+fn verify_accepts_a_repository_using_commitment_proofs() {
+    // The gap that let a regression through: the commitment tests never ran the audit,
+    // and the audit only understood transparent bundles — so a repository on the new
+    // mode reported every operation as malformed while being perfectly intact.
+    let dir = tempfile::tempdir().unwrap();
+    let core = committing(dir.path(), 0xA1);
+    let id = Identity::generate();
+
+    core.mkdir_p(&id, "/docs", 1_000).unwrap();
+    for i in 0..5 {
+        core.write_file(
+            &id,
+            &format!("/docs/f{i}.txt"),
+            format!("body {i}").as_bytes(),
+            2_000 + i,
+        )
+        .unwrap();
+    }
+
+    let report = core.verify_repository().unwrap();
+    assert_eq!(report.malformed, 0, "commitment bundles are not malformed");
+    assert_eq!(report.without_proof, 0);
+    assert!(report.with_proof > 0);
+    assert!(report.ok(), "{report:?}");
+}
+
+#[test]
+fn verify_still_catches_a_commitment_proof_that_does_not_hold() {
+    // The audit checks the path rather than merely decoding it, so tampering is caught
+    // by `nexusfs verify` and not only at receipt.
+    let dir = tempfile::tempdir().unwrap();
+    let core = committing(dir.path(), 0xA1);
+    let id = Identity::generate();
+    core.mkdir_p(&id, "/docs", 1_000).unwrap();
+
+    let mut op = core.all_ops().unwrap().pop().unwrap();
+    let mut proof = decode_commit(&op.proof.as_ref().unwrap().bytes).unwrap();
+    proof.entry.steps.clear();
+    op.proof = Some(nexusfs_proto::ProofBundle {
+        mode: ProofMode::ZkCommit,
+        bytes: nexusfs_core::encode_commit(&proof).unwrap(),
+    });
+    core.append_op(&op).unwrap();
+
+    let report = core.verify_repository().unwrap();
+    assert!(
+        report.malformed >= 1,
+        "a broken path must be counted: {report:?}"
+    );
+    assert!(!report.ok());
+}

@@ -171,6 +171,11 @@ impl CoreState {
         if outcome == ApplyOutcome::Applied || unblocked > 0 {
             self.build_snapshot()?;
         }
+
+        // The one durability point. Everything above wrote without syncing, so a crash
+        // before here loses this operation whole — which is the failure the design
+        // already tolerates, because applying is idempotent and a peer still holds it.
+        self.flush()?;
         Ok(outcome)
     }
 

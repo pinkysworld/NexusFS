@@ -45,8 +45,7 @@
 //! half-finished restore, which is exactly when deleting is worst.
 //!
 //! Marking writes nothing. It rebuilds each directory object in memory and takes its
-//! hash, which is what keeps a survey genuinely read-only — the sled backend flushes on
-//! every put, so storing during a walk would fsync once per directory.
+//! hash, which is what keeps a survey genuinely read-only.
 //!
 //! The same caution is why the admin endpoint only ever surveys: the daemon could write
 //! a blob between the mark and the sweep, and that blob would look like garbage.
@@ -99,8 +98,7 @@ impl CoreState {
         }
 
         // Walking the live tree yields a hash per inode: a `DirNode` for directories,
-        // a `FileNode` for files. Hashes only — marking must not write, or a survey
-        // would fsync once per directory on a store that flushes every put.
+        // a `FileNode` for files. Hashes only — a survey must not write.
         let mut inode_map = std::collections::BTreeMap::new();
         let mut visited = BTreeSet::new();
         self.materialize_tree(ROOT_INODE, &mut inode_map, &mut visited, false)
@@ -205,6 +203,7 @@ impl CoreState {
             report.bytes_deleted += len;
         }
 
+        self.flush()?;
         info!(
             deleted = report.deleted,
             bytes = report.bytes_deleted,
