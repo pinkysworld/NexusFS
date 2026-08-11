@@ -26,6 +26,16 @@ pub trait KvStore: Send + Sync {
     fn get_kv(&self, cf: &str, key: &[u8]) -> Result<Option<Vec<u8>>>;
     fn delete_kv(&self, cf: &str, key: &[u8]) -> Result<()>;
     fn scan_prefix(&self, cf: &str, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>>;
+
+    /// Keys under `prefix`, without their values.
+    ///
+    /// Separate from `scan_prefix` because several hot callers want only the keys, and
+    /// materializing every value to discard it makes those calls cost the size of the
+    /// data rather than the size of the answer.
+    fn scan_prefix_keys(&self, cf: &str, prefix: &[u8]) -> Result<Vec<Vec<u8>>>;
+
+    /// How many keys sit under `prefix`.
+    fn count_prefix(&self, cf: &str, prefix: &[u8]) -> Result<usize>;
 }
 
 /// Always available: it has no dependencies and no filesystem, so it is the one

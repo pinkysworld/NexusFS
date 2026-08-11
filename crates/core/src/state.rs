@@ -236,11 +236,11 @@ impl CoreState {
     }
 
     pub fn op_count(&self) -> Result<usize> {
-        Ok(self.stores.kv.scan_prefix(CF_OPLOG, OP_PREFIX)?.len())
+        self.stores.kv.count_prefix(CF_OPLOG, OP_PREFIX)
     }
 
     pub fn applied_count(&self) -> Result<usize> {
-        Ok(self.stores.kv.scan_prefix(CF_OPLOG, APPLIED_PREFIX)?.len())
+        self.stores.kv.count_prefix(CF_OPLOG, APPLIED_PREFIX)
     }
 
     pub fn is_op_applied(&self, op_id: OpId) -> Result<bool> {
@@ -263,10 +263,13 @@ impl CoreState {
     ///
     /// This is v0 and scans the whole oplog; an incremental index can replace it.
     pub fn clock_summary(&self) -> Result<ClockSummary> {
-        let rows = self.stores.kv.scan_prefix(CF_OPLOG, OP_PREFIX)?;
+        // Keys only: the summary is derived entirely from operation ids, and pulling
+        // every encoded operation along with them would make this cost the size of the
+        // whole log.
+        let keys = self.stores.kv.scan_prefix_keys(CF_OPLOG, OP_PREFIX)?;
 
         let mut seen: BTreeMap<DeviceId, BTreeSet<u64>> = BTreeMap::new();
-        for (k, _v) in rows {
+        for k in keys {
             if let Some((did, ctr)) = parse_op_key(&k) {
                 seen.entry(did).or_default().insert(ctr);
             }

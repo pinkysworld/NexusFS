@@ -131,6 +131,17 @@ pub async fn sync_once(
     outcome
 }
 
+/// How long one peer gets before the loop moves on.
+///
+/// Needed because nothing else bounds a session: a peer that completes the QUIC
+/// handshake and then stops answering leaves `recv_msg` awaiting forever, and since
+/// peers are visited in turn that stalls replication with *every* peer, permanently.
+///
+/// Generous, because a first sync can legitimately move a lot of data — and safe to
+/// impose at all only because a session persists operations and content as it goes.
+/// Cutting one short costs the remainder of that pass, not the progress already made.
+const SYNC_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(300);
+
 /// Periodically pull from every configured peer.
 ///
 /// Failures are recorded and retried on the next tick rather than aborting: a peer
@@ -185,7 +196,19 @@ pub async fn sync_loop(
                 s.last_attempt_ms = now;
             });
 
-            match sync_once(&endpoint, addr, &ctx, decision.limits).await {
+            let attempt = tokio::time::timeout(
+                SYNC_ATTEMPT_TIMEOUT,
+                sync_once(&endpoint, addr, &ctx, decision.limits),
+            )
+            .await
+            .unwrap_or_else(|_| {
+                Err(anyhow::anyhow!(
+                    "peer did not finish within {}s",
+                    SYNC_ATTEMPT_TIMEOUT.as_secs()
+                ))
+            });
+
+            match attempt {
                 Ok(outcome) => {
                     registry.record(peer, |s| {
                         s.last_success_ms = Some(now);

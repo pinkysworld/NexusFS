@@ -144,9 +144,3 @@ pub async fn connect(endpoint: &Endpoint, addr: SocketAddr) -> Result<quinn::Con
         .await
         .context("complete QUIC handshake")
 }
-
-/// Kept for callers that predate `endpoint`.
-#[deprecated(note = "use `endpoint`, which can both listen and dial")]
-pub fn make_dev_endpoint(listen: SocketAddr) -> Result<Endpoint> {
-    endpoint(listen)
-}

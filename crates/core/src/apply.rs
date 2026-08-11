@@ -190,7 +190,7 @@ impl CoreState {
     }
 
     pub fn pending_count(&self) -> Result<usize> {
-        Ok(self.stores.kv.scan_prefix(CF_OPLOG, PENDING_PREFIX)?.len())
+        self.stores.kv.count_prefix(CF_OPLOG, PENDING_PREFIX)
     }
 
     /// Operations parked awaiting dependencies.
@@ -693,7 +693,7 @@ impl CoreState {
 
     /// Number of persisted namespace records, for admin reporting.
     pub fn state_entry_count(&self) -> Result<usize> {
-        Ok(self.stores.kv.scan_prefix(CF_STATE, b"")?.len())
+        self.stores.kv.count_prefix(CF_STATE, b"")
     }
 
     /// Device id as used for CRDT writer ordering.

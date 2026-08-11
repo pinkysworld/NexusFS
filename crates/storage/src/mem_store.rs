@@ -114,6 +114,27 @@ impl KvStore for MemStore {
             .map(|((_, k), v)| (k.clone(), v.clone()))
             .collect())
     }
+
+    fn scan_prefix_keys(&self, cf: &str, prefix: &[u8]) -> Result<Vec<Vec<u8>>> {
+        Ok(self
+            .kv
+            .lock()
+            .expect("kv map poisoned")
+            .iter()
+            .filter(|((c, k), _)| c == cf && k.starts_with(prefix))
+            .map(|((_, k), _)| k.clone())
+            .collect())
+    }
+
+    fn count_prefix(&self, cf: &str, prefix: &[u8]) -> Result<usize> {
+        Ok(self
+            .kv
+            .lock()
+            .expect("kv map poisoned")
+            .keys()
+            .filter(|(c, k)| c == cf && k.starts_with(prefix))
+            .count())
+    }
 }
 
 /// All blobs currently held, for replicating content to another store.

@@ -108,4 +108,23 @@ impl KvStore for SledStore {
         }
         Ok(out)
     }
+
+    fn scan_prefix_keys(&self, cf: &str, prefix: &[u8]) -> Result<Vec<Vec<u8>>> {
+        let t = self.kv_tree(cf)?;
+        let mut out = Vec::new();
+        for key in t.scan_prefix(prefix).keys() {
+            out.push(key?.to_vec());
+        }
+        Ok(out)
+    }
+
+    fn count_prefix(&self, cf: &str, prefix: &[u8]) -> Result<usize> {
+        let t = self.kv_tree(cf)?;
+        let mut n = 0usize;
+        for key in t.scan_prefix(prefix).keys() {
+            key?;
+            n += 1;
+        }
+        Ok(n)
+    }
 }
