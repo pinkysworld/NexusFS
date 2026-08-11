@@ -63,6 +63,7 @@ pub fn router(state: AdminState) -> Router {
         .route("/api/identity", get(identity))
         .route("/api/peers/enrolled", get(enrolled_peers))
         .route("/api/fs/cat", get(fs_cat))
+        .route("/api/fs/proof", get(fs_proof))
         .with_state(state)
 }
 
@@ -228,6 +229,58 @@ async fn fs_cat(
             content: None,
             preview_hex: Some(hex::encode(&head[..head.len().min(64)])),
         })),
+    }
+}
+
+#[derive(Serialize)]
+struct ProofResp {
+    path: String,
+    inode: String,
+    state_root: String,
+    /// Hex object hash the entry commits to.
+    value: String,
+    /// Sibling hashes, root-ward. Length is the depth of the tree at this entry.
+    steps: usize,
+    /// The whole proof, in the shape `nexusfs check-proof` reads.
+    proof: nexusfs_zk::merkle::InclusionProof,
+}
+
+/// Prove that a path holds its current content, in the state root this node reports.
+///
+/// Self-contained by construction: whoever receives this needs the root and nothing
+/// else, which is the entire reason the commitment layer exists.
+async fn fs_proof(
+    State(st): State<AdminState>,
+    headers: HeaderMap,
+    Query(q): Query<LsQuery>,
+) -> Result<Json<ProofResp>, (StatusCode, String)> {
+    require_token(&headers, &st.token).map_err(|c| (c, "unauthorized".into()))?;
+
+    let build = || -> anyhow::Result<Option<ProofResp>> {
+        let Some((inode, _)) = st.core.resolve_path(&q.path)? else {
+            return Ok(None);
+        };
+        let (Some(proof), Some(root)) =
+            (st.core.inclusion_proof(inode)?, st.core.get_state_root()?)
+        else {
+            return Ok(None);
+        };
+        Ok(Some(ProofResp {
+            path: q.path.clone(),
+            inode: format!("{inode:x}"),
+            state_root: hex::encode(root),
+            value: hex::encode(proof.value),
+            steps: proof.steps.len(),
+            proof,
+        }))
+    };
+
+    match build().map_err(server_error)? {
+        Some(resp) => Ok(Json(resp)),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            format!("{} is not in the committed state", q.path),
+        )),
     }
 }
 

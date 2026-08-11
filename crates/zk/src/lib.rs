@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod merkle;
 pub mod transparent;
 
 use anyhow::Result;

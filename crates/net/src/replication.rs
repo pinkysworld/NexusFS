@@ -4,7 +4,13 @@ use nexusfs_proto::{BuildInfo, DeviceId, MessageEnvelope, Msg};
 use rand::RngCore;
 
 /// Protocol version (v0).
-pub const PROTOCOL_VERSION: u16 = 1;
+/// Bumped for v2's Merkle state commitment.
+///
+/// The wire format did not change, but the meaning of a state root did. Two peers on
+/// different versions would sync operations happily and then report different roots
+/// forever, which looks like corruption. Refusing the handshake says what is actually
+/// wrong.
+pub const PROTOCOL_VERSION: u16 = 2;
 
 /// Max message size accepted (bytes).
 pub const MAX_FRAME_LEN: usize = 8 * 1024 * 1024;

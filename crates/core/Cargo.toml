@@ -18,6 +18,7 @@ hex.workspace = true
 nexusfs-storage = { path = "../storage" }
 nexusfs-proto = { path = "../proto" }
 nexusfs-crdt = { path = "../crdt" }
+nexusfs-zk = { path = "../zk" }
 nexusfs-crypto = { path = "../crypto" }
 
 [dev-dependencies]

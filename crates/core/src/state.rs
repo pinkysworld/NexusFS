@@ -358,6 +358,12 @@ impl CoreState {
         self.store_dir(ROOT_INODE, &Default::default())?;
 
         let head = self.build_snapshot()?;
+
+        // Stamp the format at creation. Without this, a fresh repository looks
+        // indistinguishable from one written before versioning existed, and would be
+        // adopted as v1 — demanding a migration the moment it was made.
+        self.stamp_current_format()?;
+
         info!(head = %hex::encode(head), "bootstrapped new repository");
         Ok(())
     }

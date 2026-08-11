@@ -93,7 +93,11 @@ impl CoreState {
         }
 
         let changed = changed_hashes(&kind);
-        let bundle = self.finish_proof(old_root, changed)?;
+        let bundle = if self.proofs.commits() {
+            self.finish_commit_proof(old_root, subject_inode(&provisional.id, &kind), changed)?
+        } else {
+            self.finish_proof(old_root, changed)?
+        };
 
         let mut op = provisional;
         op.proof = Some(bundle);
@@ -317,5 +321,24 @@ impl CoreState {
             record.content.value.size,
             record.content.value.mtime_unix_ms,
         )))
+    }
+}
+
+/// The inode an operation is *about*, for a commitment proof to name.
+///
+/// One entry per operation rather than everything it touched: a proof of "this is what
+/// the operation did" needs a subject, and a creation's subject is the thing created
+/// while a removal's is the directory it was removed from. Returning `None` where there
+/// is no meaningful single subject makes the caller fall back rather than guess.
+fn subject_inode(op_id: &nexusfs_proto::OpId, kind: &FsOpKind) -> Option<u128> {
+    match kind {
+        // The created inode is derived from the operation that created it.
+        FsOpKind::Mkdir { .. } | FsOpKind::CreateFile { .. } => {
+            Some(crate::inode::inode_for_op(*op_id))
+        }
+        FsOpKind::Write { inode, .. } | FsOpKind::SetAttr { inode, .. } => Some(*inode),
+        // The entry is gone, so the provable fact is about the directory it left.
+        FsOpKind::Unlink { parent, .. } => Some(*parent),
+        FsOpKind::Rename { new_parent, .. } => Some(*new_parent),
     }
 }

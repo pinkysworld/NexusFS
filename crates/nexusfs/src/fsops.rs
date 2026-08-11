@@ -317,3 +317,104 @@ fn parse_pubkey(s: &str) -> Result<[u8; 32]> {
     key.copy_from_slice(&raw);
     Ok(key)
 }
+
+// --- portable proofs ---------------------------------------------------------
+//
+// The point of the commitment layer is that a claim about state travels on its own. So
+// `prove` writes something self-contained and `check-proof` opens no repository at all —
+// if it needed one, the proof would not be proving anything the holder could not already
+// see for themselves.
+
+/// What `prove` writes and `check-proof` reads.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct PortableProof {
+    /// Human orientation only; the proof is about an inode, not a path.
+    path: String,
+    /// Hex state root the inclusion path reaches.
+    state_root: String,
+    /// Hex device id of the node that produced it, for provenance.
+    issuer: String,
+    inode: String,
+    proof: nexusfs_zk::merkle::InclusionProof,
+}
+
+pub async fn run_prove(config_path: PathBuf, path: String, out: Option<PathBuf>) -> Result<()> {
+    let (core, _identity) = open_repo(&config_path)?;
+
+    let Some((inode, _)) = core.resolve_path(&path)? else {
+        bail!("no such path: {path}");
+    };
+    let Some(proof) = core.inclusion_proof(inode)? else {
+        bail!(
+            "{path} resolves to inode {inode:x}, which is not in the committed state; \
+             an entry with no content yet has nothing to prove"
+        );
+    };
+    let Some(state_root) = core.get_state_root()? else {
+        bail!("this repository has no state root yet");
+    };
+
+    let portable = PortableProof {
+        path,
+        state_root: hex::encode(state_root),
+        issuer: format!("{:x}", core.device_id.0),
+        inode: format!("{inode:x}"),
+        proof,
+    };
+    let json = serde_json::to_string_pretty(&portable).context("serialize proof")?;
+
+    match out {
+        Some(file) => {
+            std::fs::write(&file, json).with_context(|| format!("write {}", file.display()))?;
+            println!("wrote proof for {} to {}", portable.path, file.display());
+        }
+        None => println!("{json}"),
+    }
+    Ok(())
+}
+
+pub async fn run_check_proof(file: String, root: Option<String>) -> Result<()> {
+    let json = if file == "-" {
+        use std::io::Read;
+        let mut buf = String::new();
+        std::io::stdin()
+            .read_to_string(&mut buf)
+            .context("read proof from stdin")?;
+        buf
+    } else {
+        std::fs::read_to_string(&file).with_context(|| format!("read {file}"))?
+    };
+
+    let portable: PortableProof = serde_json::from_str(&json).context("parse proof")?;
+
+    // An explicit --root is the meaningful check. Without one this only confirms the
+    // proof is internally consistent, which says nothing about whether the root is a
+    // state anyone else agrees with — so say so rather than printing a bare "valid".
+    let expected_hex = root.as_ref().unwrap_or(&portable.state_root);
+    let raw = hex::decode(expected_hex.trim()).context("state root is not hexadecimal")?;
+    if raw.len() != 32 {
+        bail!("state root is {} bytes, expected 32", raw.len());
+    }
+    let mut expected = [0u8; 32];
+    expected.copy_from_slice(&raw);
+
+    nexusfs_zk::merkle::check(&portable.proof, &expected)?;
+
+    println!("path:       {}", portable.path);
+    println!("inode:      {}", portable.inode);
+    println!("issuer:     {}", portable.issuer);
+    println!("state root: {}", hex::encode(expected));
+    println!("object:     {}", hex::encode(portable.proof.value));
+    println!("path steps: {}", portable.proof.steps.len());
+
+    if root.is_some() {
+        println!("\nproof holds against the supplied state root");
+    } else {
+        println!(
+            "\nproof is internally consistent. It was checked against the root recorded \
+             inside it, so this does not establish that root is one you trust — pass \
+             --root to check against a root you obtained independently."
+        );
+    }
+    Ok(())
+}

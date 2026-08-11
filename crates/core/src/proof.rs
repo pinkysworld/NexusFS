@@ -14,9 +14,18 @@
 //! matches. That second check is skipped rather than failed when the receiver has not
 //! yet caught up, because operations legitimately arrive out of order.
 //!
-//! The ZkCommit path (M7) replaces the recorded roots with commitments that can be
-//! proved without revealing them. Nothing here is thrown away when that lands: the
-//! same before/after shape is what a circuit would attest to.
+//! # The commitment mode
+//!
+//! `ProofPolicy::Commit` records something a transparent proof cannot: an inclusion
+//! path showing that the entry the operation touched really is in the state root the
+//! author claims. A transparent proof is only checkable by someone who already holds
+//! the author's prior state; a commitment proof is checkable by anyone holding the root
+//! — no filesystem, no network, no replay.
+//!
+//! That is a commitment scheme, not zero knowledge. The verifier learns the inode and
+//! its object hash; what it does not learn is the rest of the tree. The mode is named
+//! `ZkCommit` because the sibling path is precisely the witness a SNARK would consume,
+//! not because a proving system is involved. See `nexusfs_zk::merkle`.
 
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -44,6 +53,26 @@ pub fn decode_proof(bytes: &[u8]) -> Result<TransparentProof> {
     postcard::from_bytes(bytes).context("decode transparent proof")
 }
 
+/// Evidence that an entry is in a committed state, checkable on its own.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommitProof {
+    /// State root before the operation, when the author had one. Carried for the same
+    /// reason the transparent proof carries it: it chains one operation to the next.
+    pub old_root: Option<Hash>,
+    /// The state root this operation produced.
+    pub new_root: Hash,
+    /// Inclusion of the entry the operation is about, in `new_root`.
+    pub entry: nexusfs_zk::merkle::InclusionProof,
+}
+
+pub fn encode_commit(proof: &CommitProof) -> Result<Vec<u8>> {
+    postcard::to_stdvec(proof).context("encode commitment proof")
+}
+
+pub fn decode_commit(bytes: &[u8]) -> Result<CommitProof> {
+    postcard::from_bytes(bytes).context("decode commitment proof")
+}
+
 /// How strictly a node treats proofs on operations it receives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ProofPolicy {
@@ -54,6 +83,12 @@ pub enum ProofPolicy {
     Transparent,
     /// As above, and refuse operations that carry no proof at all.
     Required,
+    /// Generate commitment proofs carrying an inclusion path.
+    ///
+    /// Incoming transparent proofs are still accepted. Refusing them would make the
+    /// mode unusable in any cluster that is not upgraded in lockstep, and a transparent
+    /// proof is not *wrong* — it proves less.
+    Commit,
 }
 
 impl ProofPolicy {
@@ -61,12 +96,18 @@ impl ProofPolicy {
         match value.trim().to_ascii_lowercase().as_str() {
             "transparent" => Self::Transparent,
             "required" => Self::Required,
+            "zk_commit" | "commit" => Self::Commit,
             _ => Self::None,
         }
     }
 
     pub fn generates(&self) -> bool {
         !matches!(self, Self::None)
+    }
+
+    /// Whether local operations should carry an inclusion path.
+    pub fn commits(&self) -> bool {
+        matches!(self, Self::Commit)
     }
 }
 
@@ -76,6 +117,38 @@ impl CoreState {
     /// Called before the mutation, so `old_root` is genuinely the prior state.
     pub fn begin_proof(&self) -> Result<Option<Hash>> {
         self.get_state_root()
+    }
+
+    /// Finish the evidence for an operation whose subject is `inode`.
+    ///
+    /// Falls back to a transparent bundle when the subject is not in the live tree —
+    /// an unlink removes its own subject, and a proof of absence is a different
+    /// construction. Downgrading is safe because the verifier checks whatever mode the
+    /// bundle declares; silently emitting a commitment proof for the wrong entry would
+    /// not be.
+    pub fn finish_commit_proof(
+        &self,
+        old_root: Option<Hash>,
+        inode: Option<u128>,
+        changed: Vec<Hash>,
+    ) -> Result<ProofBundle> {
+        let new_root = self.get_state_root()?;
+        let entry = match (new_root, inode) {
+            (Some(_), Some(inode)) => self.inclusion_proof(inode)?,
+            _ => None,
+        };
+
+        match (new_root, entry) {
+            (Some(new_root), Some(entry)) => Ok(ProofBundle {
+                mode: ProofMode::ZkCommit,
+                bytes: encode_commit(&CommitProof {
+                    old_root,
+                    new_root,
+                    entry,
+                })?,
+            }),
+            _ => self.finish_proof(old_root, changed),
+        }
     }
 
     /// Finish the evidence once the operation has been applied.
@@ -114,25 +187,45 @@ impl CoreState {
         };
 
         match bundle.mode {
-            ProofMode::Transparent => {}
+            ProofMode::Transparent => {
+                // A bundle that does not decode is malformed, and malformed evidence is
+                // worse than none: it must be rejected deterministically, not ignored.
+                let proof = decode_proof(&bundle.bytes).with_context(|| {
+                    format!(
+                        "operation {:x}/{} carries a malformed transparent proof",
+                        op.id.device_id.0, op.id.counter
+                    )
+                })?;
+
+                if proof.new_root.is_none() {
+                    bail!(
+                        "operation {:x}/{} records no resulting state root",
+                        op.id.device_id.0,
+                        op.id.counter
+                    );
+                }
+            }
+
+            ProofMode::ZkCommit => {
+                let proof = decode_commit(&bundle.bytes).with_context(|| {
+                    format!(
+                        "operation {:x}/{} carries a malformed commitment proof",
+                        op.id.device_id.0, op.id.counter
+                    )
+                })?;
+
+                // The whole point of this mode: the claim is checkable here and now,
+                // against nothing but the bundle itself. No prior state, no replay.
+                nexusfs_zk::merkle::check(&proof.entry, &proof.new_root).with_context(|| {
+                    format!(
+                        "operation {:x}/{} carries an inclusion path that does not \
+                         reach the state root it claims",
+                        op.id.device_id.0, op.id.counter
+                    )
+                })?;
+            }
+
             other => bail!("proof mode {other:?} is not supported by this build"),
-        }
-
-        // A bundle that does not decode is malformed, and malformed evidence is worse
-        // than none: it must be rejected deterministically rather than ignored.
-        let proof = decode_proof(&bundle.bytes).with_context(|| {
-            format!(
-                "operation {:x}/{} carries a malformed transparent proof",
-                op.id.device_id.0, op.id.counter
-            )
-        })?;
-
-        if proof.new_root.is_none() {
-            bail!(
-                "operation {:x}/{} records no resulting state root",
-                op.id.device_id.0,
-                op.id.counter
-            );
         }
 
         Ok(())

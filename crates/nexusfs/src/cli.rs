@@ -93,6 +93,30 @@ pub enum Command {
         config: PathBuf,
     },
 
+    /// Emit a portable proof that a path holds its current content.
+    ///
+    /// The result verifies against the state root alone — no repository needed.
+    Prove {
+        #[arg(long)]
+        config: PathBuf,
+        path: String,
+        /// Write to a file instead of stdout.
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+
+    /// Check a proof emitted by `prove`.
+    ///
+    /// Reads no repository: the proof and the root it is checked against are enough.
+    CheckProof {
+        /// File written by `prove`, or `-` for stdin.
+        file: String,
+        /// Expected state root in hex. Defaults to the one recorded in the proof, which
+        /// checks internal consistency but not that the root is one you trust.
+        #[arg(long)]
+        root: Option<String>,
+    },
+
     /// Manage which peer devices this node will accept operations from.
     Peer {
         #[command(subcommand)]

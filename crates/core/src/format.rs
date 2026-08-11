@@ -33,7 +33,11 @@ use tracing::info;
 use crate::state::{CoreState, CF_META};
 
 /// The format this build reads and writes.
-pub const CURRENT_FORMAT_VERSION: u32 = 1;
+///
+/// v2 replaced the flat inode-map commitment with a Merkle root. Nothing stored changed
+/// shape — the state root is derived — but its *value* did, and two builds that disagree
+/// on the state root would never converge. That is what the stamp is for.
+pub const CURRENT_FORMAT_VERSION: u32 = 2;
 
 /// The version an unstamped repository is taken to be. Never changes: it names the
 /// format that existed before the stamp did, not the current one.
@@ -75,17 +79,36 @@ impl CoreState {
             .put_kv(CF_META, KEY_FORMAT_VERSION, &version.to_be_bytes())
     }
 
+    /// Record that this repository is on the format this build writes.
+    ///
+    /// Called when a repository is created, which is the only moment its format is known
+    /// rather than inferred.
+    pub(crate) fn stamp_current_format(&self) -> Result<()> {
+        self.set_format_version(CURRENT_FORMAT_VERSION)
+    }
+
     /// Inspect the format, stamping unversioned repositories on the way.
     ///
-    /// An unstamped store is version 1 by definition: versioning was introduced
-    /// alongside it, so anything without a stamp was written by a build whose format
-    /// *is* version 1. Recording that is not a migration, it is filling in a fact.
+    /// An unstamped store is one of two things, and the difference matters: a
+    /// repository written before versioning existed, which is v1 and needs migrating;
+    /// or one that has never been written at all, which is whatever this build is about
+    /// to make it.
+    ///
+    /// A head separates them. Bootstrapping sets one, so every real repository has a
+    /// head and an empty directory does not — and this runs *before* bootstrap, which is
+    /// exactly when that distinction is still visible. Getting it wrong would make every
+    /// newly created repository demand a migration on the spot.
     pub fn check_format(&self) -> Result<FormatState> {
         let found = match self.format_version()? {
             Some(v) => v,
             None => {
-                self.set_format_version(FIRST_FORMAT_VERSION)?;
-                FIRST_FORMAT_VERSION
+                let version = if self.get_head()?.is_some() {
+                    FIRST_FORMAT_VERSION
+                } else {
+                    CURRENT_FORMAT_VERSION
+                };
+                self.set_format_version(version)?;
+                version
             }
         };
 
@@ -157,15 +180,18 @@ impl CoreState {
 
     /// Move the store from `from` to `from + 1`, ending with the stamp updated.
     fn migrate_step(&self, from: u32) -> Result<()> {
-        // The first real migration goes here, shaped like:
-        //
-        //     if from == 1 {
-        //         ...rewrite the affected records...
-        //         return self.set_format_version(2);
-        //     }
-        //
-        // v1 is the earliest format, so today there is nothing below it to come from
-        // and any request to migrate is a corrupt or hand-edited stamp.
+        if from == 1 {
+            // v1 -> v2: the inode-map commitment became a Merkle root.
+            //
+            // No record changes shape, so there is nothing to rewrite. What is stale is
+            // the *derived* state root and the head object built from it, and both are
+            // reproducible from live state — so the migration is a re-snapshot rather
+            // than a rewrite. That is also why it is safe to interrupt: rerunning it
+            // recomputes the same thing.
+            info!("migrating to on-disk format v2: rebuilding the state commitment");
+            self.build_snapshot()?;
+            return self.set_format_version(2);
+        }
         bail!("no migration is implemented from on-disk format v{from}")
     }
 }

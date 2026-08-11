@@ -16,3 +16,4 @@ postcard.workspace = true
 tracing.workspace = true
 
 nexusfs-proto = { path = "../proto" }
+blake3.workspace = true

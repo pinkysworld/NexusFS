@@ -20,5 +20,6 @@ tower-http.workspace = true
 
 nexusfs-core = { path = "../core" }
 nexusfs-proto = { path = "../proto" }
+nexusfs-zk = { path = "../zk" }
 hex.workspace = true
 

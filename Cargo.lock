@@ -1190,6 +1190,7 @@ dependencies = [
  "nexusfs-zk",
  "rand 0.8.5",
  "serde",
+ "serde_json",
  "tokio",
  "toml",
  "tracing",
@@ -1205,6 +1206,7 @@ dependencies = [
  "hex",
  "nexusfs-core",
  "nexusfs-proto",
+ "nexusfs-zk",
  "serde",
  "serde_json",
  "tokio",
@@ -1224,6 +1226,7 @@ dependencies = [
  "nexusfs-crypto",
  "nexusfs-proto",
  "nexusfs-storage",
+ "nexusfs-zk",
  "postcard",
  "serde",
  "tempfile",
@@ -1370,6 +1373,7 @@ name = "nexusfs-zk"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "blake3",
  "nexusfs-proto",
  "postcard",
  "serde",

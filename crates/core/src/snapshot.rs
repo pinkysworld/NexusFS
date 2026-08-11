@@ -10,9 +10,6 @@ use crate::namespace::AttrState;
 use crate::object::{DirNode, EntryType, Object, ObjectHeader, SnapshotRoot};
 use crate::state::CoreState;
 
-/// Domain separator for the inode-map commitment.
-const INODE_MAP_DOMAIN: &[u8] = b"nexusfs/inode-map/v1";
-
 /// Backstop against a malformed tree walking forever.
 const MAX_TREE_NODES: usize = 1_000_000;
 
@@ -59,6 +56,28 @@ impl CoreState {
         let head = self.put_object(&Object::SnapshotRoot(snapshot))?;
         self.set_head(head)?;
         Ok(head)
+    }
+
+    /// The live inode map: exactly the leaves the state root commits to.
+    ///
+    /// Walks without storing, so building a proof does not write. Sorted and unique by
+    /// construction — it comes from a `BTreeMap`, which is what the commitment requires.
+    pub fn inode_map(&self) -> Result<Vec<(u128, Hash)>> {
+        let mut inode_map: BTreeMap<u128, Hash> = BTreeMap::new();
+        let mut visited: BTreeSet<u128> = BTreeSet::new();
+        self.materialize_tree(ROOT_INODE, &mut inode_map, &mut visited, false)?;
+        Ok(inode_map.into_iter().collect())
+    }
+
+    /// Prove that `inode` holds its current object hash in the current state root.
+    ///
+    /// `None` when the inode is not in the live tree. The proof is self-contained: a
+    /// verifier needs it and the root, nothing else.
+    pub fn inclusion_proof(
+        &self,
+        inode: u128,
+    ) -> Result<Option<nexusfs_zk::merkle::InclusionProof>> {
+        Ok(nexusfs_zk::merkle::prove(&self.inode_map()?, inode))
     }
 
     /// The pure state commitment: a function of applied operations only.
@@ -149,17 +168,14 @@ impl CoreState {
     }
 }
 
-/// BLAKE3 over the sorted `(inode, hash)` pairs.
+/// A Merkle commitment over the sorted `(inode, hash)` pairs.
 ///
-/// A flat commitment is enough to make the head meaningful today. Replacing it with a
-/// SNARK-friendly Merkle map later changes only this function and the ZkCommit path.
+/// This used to be one flat BLAKE3 over the whole list, which could say only "two
+/// replicas agree" — convincing anyone of a single fact meant handing them the entire
+/// state. A Merkle root commits to the same thing while making each entry provable on
+/// its own. Changing it changes what replicas compare, which is why it arrived with an
+/// on-disk format bump and a protocol version bump rather than quietly.
 fn commit_inode_map(map: &BTreeMap<u128, Hash>) -> Hash {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(INODE_MAP_DOMAIN);
-    hasher.update(&(map.len() as u64).to_be_bytes());
-    for (inode, hash) in map {
-        hasher.update(&inode.to_be_bytes());
-        hasher.update(hash);
-    }
-    *hasher.finalize().as_bytes()
+    let entries: Vec<(u128, Hash)> = map.iter().map(|(k, v)| (*k, *v)).collect();
+    nexusfs_zk::merkle::commit(&entries)
 }
