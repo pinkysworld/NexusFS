@@ -364,6 +364,7 @@ impl CoreState {
         self.store_inode(ROOT_INODE, &root)?;
         self.store_dir(ROOT_INODE, &Default::default())?;
 
+        self.rebuild_inode_map()?;
         let head = self.build_snapshot()?;
 
         // Stamp the format at creation. Without this, a fresh repository looks

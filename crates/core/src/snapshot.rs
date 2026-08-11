@@ -6,7 +6,7 @@ use nexusfs_proto::types::DeviceId;
 use nexusfs_storage::Hash;
 
 use crate::inode::ROOT_INODE;
-use crate::namespace::AttrState;
+use crate::namespace::{imap_key, parse_imap_key, AttrState, CF_STATE, IMAP_PREFIX};
 use crate::object::{DirNode, EntryType, Object, ObjectHeader, SnapshotRoot};
 use crate::state::CoreState;
 
@@ -60,13 +60,155 @@ impl CoreState {
 
     /// The live inode map: exactly the leaves the state root commits to.
     ///
-    /// Walks without storing, so building a proof does not write. Sorted and unique by
-    /// construction — it comes from a `BTreeMap`, which is what the commitment requires.
+    /// Read from the maintained map rather than walked. The walk is what an apply used
+    /// to spend most of its time on — 2.8ms of a 3.7ms state root at a thousand
+    /// entries — and it grows with the tree while the change that triggered it does not.
+    ///
+    /// Sorted and unique because the keys are fixed-width big-endian inodes, so the
+    /// store's byte order is inode order — which is what the commitment requires.
     pub fn inode_map(&self) -> Result<Vec<(u128, Hash)>> {
-        let mut inode_map: BTreeMap<u128, Hash> = BTreeMap::new();
+        let rows = self.stores.kv.scan_prefix(CF_STATE, IMAP_PREFIX)?;
+        let mut out = Vec::with_capacity(rows.len());
+        for (key, value) in rows {
+            let (Some(inode), Ok(hash)) = (parse_imap_key(&key), <[u8; 32]>::try_from(&value[..]))
+            else {
+                bail!("inode map holds a malformed entry");
+            };
+            out.push((inode, hash));
+        }
+        Ok(out)
+    }
+
+    /// Rebuild the map from a full walk, replacing whatever was there.
+    ///
+    /// The authority the incremental path is checked against, and the fallback whenever
+    /// an operation could change *which* inodes are reachable rather than merely what
+    /// they hold.
+    pub fn rebuild_inode_map(&self) -> Result<Vec<(u128, Hash)>> {
+        let mut fresh: BTreeMap<u128, Hash> = BTreeMap::new();
         let mut visited: BTreeSet<u128> = BTreeSet::new();
-        self.materialize_tree(ROOT_INODE, &mut inode_map, &mut visited, false)?;
-        Ok(inode_map.into_iter().collect())
+        self.materialize_tree(ROOT_INODE, &mut fresh, &mut visited, true)?;
+
+        for (key, _) in self.stores.kv.scan_prefix(CF_STATE, IMAP_PREFIX)? {
+            if let Some(inode) = parse_imap_key(&key) {
+                if !fresh.contains_key(&inode) {
+                    self.stores.kv.delete_kv(CF_STATE, &key)?;
+                }
+            }
+        }
+        for (inode, hash) in &fresh {
+            self.stores.kv.put_kv(CF_STATE, &imap_key(*inode), hash)?;
+        }
+        Ok(fresh.into_iter().collect())
+    }
+
+    /// Recompute one inode's entry, or drop it when the inode is not reachable.
+    ///
+    /// Reachability is checked here rather than by the caller so that patching is
+    /// always safe: an operation applied inside a directory that has since been
+    /// unlinked must add nothing, and this is the single place that decides.
+    pub(crate) fn refresh_map_entry(&self, inode: u128) -> Result<()> {
+        let key = imap_key(inode);
+
+        if !self.is_reachable(inode)? {
+            self.stores.kv.delete_kv(CF_STATE, &key)?;
+            return Ok(());
+        }
+
+        let Some(record) = self.load_inode(inode)? else {
+            self.stores.kv.delete_kv(CF_STATE, &key)?;
+            return Ok(());
+        };
+
+        match record.kind {
+            EntryType::Dir => {
+                let hash = self.store_dir_object(inode)?;
+                self.stores.kv.put_kv(CF_STATE, &key, &hash)?;
+            }
+            // A file with no content yet is absent from the map, exactly as the walk
+            // leaves it — the commitment is over content, and there is none.
+            EntryType::File => match record.content.value.node_hash {
+                Some(hash) => self.stores.kv.put_kv(CF_STATE, &key, &hash)?,
+                None => self.stores.kv.delete_kv(CF_STATE, &key)?,
+            },
+        }
+        Ok(())
+    }
+
+    /// Whether `inode` is reachable from the root.
+    ///
+    /// Directories always carry a map entry when reachable, so membership answers this
+    /// outright for them. A file may legitimately have no entry — it has no content yet
+    /// — so it is answered through the parent recorded when it was created, confirming
+    /// the parent still lists it.
+    pub(crate) fn is_reachable(&self, inode: u128) -> Result<bool> {
+        let mut current = inode;
+        let mut hops = 0usize;
+
+        loop {
+            if current == ROOT_INODE {
+                return Ok(true);
+            }
+            if self
+                .stores
+                .kv
+                .get_kv(CF_STATE, &imap_key(current))?
+                .is_some()
+            {
+                return Ok(true);
+            }
+
+            let Some(parent) = self.parent_of(current)? else {
+                return Ok(false);
+            };
+            if !self.dir_lists(parent, current)? {
+                return Ok(false);
+            }
+
+            current = parent;
+            hops += 1;
+            if hops > MAX_TREE_NODES {
+                bail!("parent chain for inode {inode:x} does not terminate");
+            }
+        }
+    }
+
+    /// Materialize and store one directory's object, returning its hash.
+    fn store_dir_object(&self, inode: u128) -> Result<Hash> {
+        let entries = self.materialize_dir(inode)?;
+        let record = self.load_inode(inode)?;
+        let attrs = record.as_ref().map(|r| r.attrs.value).unwrap_or(AttrState {
+            mode: 0o40755,
+            uid: 0,
+            gid: 0,
+        });
+        let (mtime, ctime) = record
+            .as_ref()
+            .map(|r| (r.content.value.mtime_unix_ms, r.ctime_unix_ms))
+            .unwrap_or((0, 0));
+
+        let mut dir = DirNode {
+            header: ObjectHeader {
+                type_tag: 2,
+                version: 1,
+            },
+            entries,
+            mode: attrs.mode,
+            uid: attrs.uid,
+            gid: attrs.gid,
+            mtime_unix_ms: mtime,
+            ctime_unix_ms: ctime,
+        };
+        dir.canonicalize();
+        self.put_object(&Object::DirNode(dir))
+    }
+
+    /// Whether `parent` currently lists `child` among its live entries.
+    fn dir_lists(&self, parent: u128, child: u128) -> Result<bool> {
+        Ok(self
+            .materialize_dir(parent)?
+            .iter()
+            .any(|e| e.inode_id == child))
     }
 
     /// Prove that `inode` holds its current object hash in the current state root.
@@ -105,10 +247,7 @@ impl CoreState {
     /// have converged. The head additionally carries provenance (`author`), which is
     /// necessarily per-device.
     pub fn compute_state_root(&self) -> Result<Hash> {
-        let mut inode_map: BTreeMap<u128, Hash> = BTreeMap::new();
-        let mut visited: BTreeSet<u128> = BTreeSet::new();
-        self.materialize_tree(ROOT_INODE, &mut inode_map, &mut visited, true)?;
-        Ok(commit_inode_map(&inode_map))
+        Ok(nexusfs_zk::merkle::commit(&self.inode_map()?))
     }
 
     /// Walk the live tree, recording each inode's current object hash.
@@ -185,16 +324,4 @@ impl CoreState {
         inode_map.insert(inode, hash);
         Ok(hash)
     }
-}
-
-/// A Merkle commitment over the sorted `(inode, hash)` pairs.
-///
-/// This used to be one flat BLAKE3 over the whole list, which could say only "two
-/// replicas agree" — convincing anyone of a single fact meant handing them the entire
-/// state. A Merkle root commits to the same thing while making each entry provable on
-/// its own. Changing it changes what replicas compare, which is why it arrived with an
-/// on-disk format bump and a protocol version bump rather than quietly.
-fn commit_inode_map(map: &BTreeMap<u128, Hash>) -> Hash {
-    let entries: Vec<(u128, Hash)> = map.iter().map(|(k, v)| (*k, *v)).collect();
-    nexusfs_zk::merkle::commit(&entries)
 }

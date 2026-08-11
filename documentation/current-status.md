@@ -342,7 +342,7 @@ daemon uses between real nodes.
 
 ### Test Coverage
 
-155 tests, including order-independent convergence (the same operation set applied in
+161 tests, including order-independent convergence (the same operation set applied in
 different orders yields an identical state root), idempotent re-apply, pending-op drain,
 concurrent-create conflict naming, concurrent-write resolution, rename-vs-unlink,
 subtree-cycle refusal, restart persistence, S3 key mapping and pagination, and
@@ -434,15 +434,45 @@ path shape does not support.
 - **Persisted telemetry snapshots** (M5). A power reading from before a restart
   describes a machine that may since have been unplugged.
 
+### The Maintained Inode Map
+
+The state root commits to a flat map of inode to object hash. That map used to be
+rebuilt by walking the whole tree on every applied operation — materializing, encoding
+and hashing every directory to enumerate what was reachable, work proportional to the
+filesystem rather than to the change.
+
+It is now maintained. A directory's hash depends only on its own entries and attributes,
+not on its children, so changing one inode changes exactly one map entry. Creates and
+writes patch the entries they touch; removals and renames fall back to a full walk,
+because they can change *which* inodes are reachable and there is no cheap bound on how
+many.
+
+Reachability is the part that has to be exact, and it is answered two ways: a reachable
+directory always carries a map entry, so membership settles it; a file may legitimately
+have none — it has no content yet — so it is answered through the parent recorded when
+it was created, confirming the parent still lists it. An operation applied inside a
+directory that has since been unlinked therefore adds nothing.
+
+Measured at a thousand entries: the state root fell from 3.66ms to 1.04ms. End-to-end an
+apply improved about 6%, because an apply is now dominated by its single fsync rather
+than by computation. The remaining cost is still linear — the Merkle tree is rebuilt from
+the map each time — so an incremental tree, updating one leaf in O(log n), is the next
+layer rather than something this change delivered.
+
+Correctness is pinned by an invariant suite that re-derives the map with a full walk
+after every kind of operation and demands equality, since a wrong entry is not a stale
+cache but two replicas disagreeing about what the filesystem is.
+
 ## Recommended Next Step (updated)
 
-Incremental snapshots. With durability fixed, the state-root walk is the visible cost of
-an apply — 3.6ms at 1000 entries, about 40%, and growing with the tree. Making it
-incremental needs parent pointers and a persisted inode map, so it is a design change
-rather than a tweak, but it is now the largest remaining win by measurement.
+An incremental Merkle tree. The map is now maintained rather than walked, but the
+commitment over it is still rebuilt per apply — linear in the filesystem for a change
+that touched one entry. Updating a single leaf in O(log n) is the remaining structural
+win.
 
-After that, close the loop the energy scheduler opened: fetch deferred content on demand
-at read time. A node running metadata-only already knows a file exists and which chunks it needs;
+Worth weighing against it: an apply is currently fsync-bound, so the end-to-end gain
+would be small until something else changes. Closing the loop the energy scheduler
+opened — fetching deferred content on demand at read time — buys more for users today. A node running metadata-only already knows a file exists and which chunks it needs;
 today a read of that file fails until the next unconstrained sync pass happens to bring
 the bytes. Pulling the missing chunks when someone actually opens the file is what turns
 "deferred" from a gap into a policy, and it reuses the blob phase of the existing

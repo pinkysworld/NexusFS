@@ -21,6 +21,10 @@ pub const CF_STATE: &str = "state";
 
 const DIR_PREFIX: &[u8] = b"dir\0";
 const INODE_PREFIX: &[u8] = b"inode\0";
+/// The maintained inode map: what the state root commits to.
+pub(crate) const IMAP_PREFIX: &[u8] = b"imap\0";
+/// Where an inode was created, so a file's reachability can be answered without a walk.
+pub(crate) const PARENT_PREFIX: &[u8] = b"parent\0";
 
 /// Directory contents: name -> entry, as an observed-remove map.
 ///
@@ -108,6 +112,29 @@ pub fn dir_key(inode: u128) -> Vec<u8> {
     prefixed_key(DIR_PREFIX, inode)
 }
 
+pub(crate) fn imap_key(inode: u128) -> Vec<u8> {
+    let mut k = IMAP_PREFIX.to_vec();
+    k.extend_from_slice(&inode.to_be_bytes());
+    k
+}
+
+/// Inodes are fixed-width big-endian, so key order is inode order — which is what lets
+/// the map be read back already sorted, as the commitment requires.
+pub(crate) fn parse_imap_key(key: &[u8]) -> Option<u128> {
+    if !key.starts_with(IMAP_PREFIX) || key.len() != IMAP_PREFIX.len() + 16 {
+        return None;
+    }
+    let mut b = [0u8; 16];
+    b.copy_from_slice(&key[IMAP_PREFIX.len()..]);
+    Some(u128::from_be_bytes(b))
+}
+
+pub(crate) fn parent_key(inode: u128) -> Vec<u8> {
+    let mut k = PARENT_PREFIX.to_vec();
+    k.extend_from_slice(&inode.to_be_bytes());
+    k
+}
+
 pub fn inode_key(inode: u128) -> Vec<u8> {
     prefixed_key(INODE_PREFIX, inode)
 }
@@ -148,6 +175,23 @@ impl CoreState {
             return Ok(None);
         };
         Ok(Some(decode(&bytes).context("decode inode record")?))
+    }
+
+    /// Record where an inode lives, for reachability questions the map cannot answer.
+    pub(crate) fn set_parent(&self, inode: u128, parent: u128) -> Result<()> {
+        self.stores
+            .kv
+            .put_kv(CF_STATE, &parent_key(inode), &parent.to_be_bytes())
+    }
+
+    pub(crate) fn parent_of(&self, inode: u128) -> Result<Option<u128>> {
+        let Some(raw) = self.stores.kv.get_kv(CF_STATE, &parent_key(inode))? else {
+            return Ok(None);
+        };
+        let Ok(bytes) = <[u8; 16]>::try_from(&raw[..]) else {
+            return Ok(None);
+        };
+        Ok(Some(u128::from_be_bytes(bytes)))
     }
 
     pub fn store_inode(&self, inode: u128, rec: &InodeRecord) -> Result<()> {

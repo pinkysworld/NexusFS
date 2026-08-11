@@ -66,9 +66,8 @@ remaining research tracks are named in `./roadmap.md` rather than left implied. 
 
 ### Performance
 
-- Rebuild snapshots incrementally. Every applied operation currently re-materializes
-  every directory on the path to the change, which is both the main cost of an apply and
-  the main source of collectable garbage.
+- Update the Merkle tree incrementally. The inode map is maintained now, but the
+  commitment over it is rebuilt each apply — linear work for a one-entry change.
 - Cache directory maps. `resolve_path` re-reads and re-materializes each directory per
   path component.
 - Rebuild snapshots incrementally instead of walking the whole tree on every apply.
@@ -115,10 +114,11 @@ remaining research tracks are named in `./roadmap.md` rather than left implied. 
 
 The most effective execution order right now is:
 
-1. Incremental snapshots — measured at ~40% of an apply and growing with the tree, which
-   makes it the largest remaining win rather than a guess.
-2. Close the energy follow-ups, chiefly on-demand fetch of deferred content.
-3. Implement the POSIX/FUSE facade, the only unbuilt item from M2.
+1. Close the energy follow-ups, chiefly on-demand fetch of deferred content — the
+   largest user-visible gap now that the map is maintained.
+2. Implement the POSIX/FUSE facade, the only unbuilt item from M2.
+3. An incremental Merkle tree, so a one-entry change costs O(log n) rather than a
+   rebuild. Structural, but an apply is fsync-bound today, so measure before starting.
 
 ## Definition Of “Ready To Leave Backlog”
 

@@ -157,6 +157,7 @@ impl CoreState {
                 self.mark_op_applied(op.id)?;
                 self.clear_pending(op.id)?;
                 self.observe_time(op.time_unix_ms)?;
+                self.maintain_inode_map(op)?;
                 ApplyOutcome::Applied
             }
             Mutation::Unmet(reason) => {
@@ -177,6 +178,32 @@ impl CoreState {
         // already tolerates, because applying is idempotent and a peer still holds it.
         self.flush()?;
         Ok(outcome)
+    }
+
+    /// Bring the inode map in line with what `op` did.
+    ///
+    /// Most operations change what a single inode *holds*, which is one entry. Removals
+    /// and renames can change which inodes are *reachable* — potentially a whole subtree
+    /// — and there is no cheap way to bound that, so they fall back to a full walk.
+    /// Being wrong here is not a stale cache: the map is what the state root commits to,
+    /// so a spurious or missing entry is two replicas disagreeing about the filesystem.
+    fn maintain_inode_map(&self, op: &FsOp) -> Result<()> {
+        match &op.kind {
+            FsOpKind::Mkdir { parent, .. } | FsOpKind::CreateFile { parent, .. } => {
+                // The parent's listing changed, and the new inode may now be reachable.
+                // `refresh_map_entry` decides reachability itself, so a create inside a
+                // directory that has since been unlinked correctly adds nothing.
+                self.refresh_map_entry(*parent)?;
+                self.refresh_map_entry(inode_for_op(op.id))?;
+            }
+            FsOpKind::Write { inode, .. } | FsOpKind::SetAttr { inode, .. } => {
+                self.refresh_map_entry(*inode)?;
+            }
+            FsOpKind::Unlink { .. } | FsOpKind::Rename { .. } => {
+                self.rebuild_inode_map()?;
+            }
+        }
+        Ok(())
     }
 
     // ---- pending queue ----------------------------------------------------------
@@ -265,6 +292,9 @@ impl CoreState {
                     self.mark_op_applied(op.id)?;
                     self.clear_pending(op.id)?;
                     self.observe_time(op.time_unix_ms)?;
+                    // Draining applies operations outside the normal path, so the map
+                    // has to be maintained here too or it silently falls behind.
+                    self.maintain_inode_map(&op)?;
                     progressed = true;
                     total += 1;
                 }
@@ -340,6 +370,9 @@ impl CoreState {
             op.id.counter,
         );
         self.store_inode(new_inode, &record)?;
+        // Recorded so a file's reachability can be answered without walking the tree:
+        // a file with no content yet has no map entry to consult.
+        self.set_parent(new_inode, parent)?;
 
         if kind == EntryType::Dir {
             self.store_dir(new_inode, &Default::default())?;
@@ -545,6 +578,8 @@ impl CoreState {
             entry_type: entry.entry_type,
             created_unix_ms: op.time_unix_ms,
         };
+
+        self.set_parent(entry.inode_id, new_parent)?;
 
         if old_parent == new_parent {
             let mut map = self.load_dir(old_parent)?.unwrap_or_default();
