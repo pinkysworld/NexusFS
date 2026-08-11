@@ -52,8 +52,8 @@ const milestoneData = [
   {
     label: "M8",
     title: "Research expansion",
-    status: "todo",
-    body: "Stronger privacy layers, proof batching, delay-tolerant replication and a real proving system — the last of which needs a circuit-friendly hash and a setup ceremony, so it stays behind its own milestone. Not started."
+    status: "done",
+    body: "Proof batching and absence proofs — so an inclusion proof against an old root and an absence proof against a new one demonstrate a deletion. Plus the durability work that made applying an operation 6.8-9.5x faster. Privacy layers, delay-tolerant replication and a real proving system are named as open rather than implied."
   }
 ];
 

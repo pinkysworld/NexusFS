@@ -80,6 +80,25 @@ impl CoreState {
         Ok(nexusfs_zk::merkle::prove(&self.inode_map()?, inode))
     }
 
+    /// Prove that `inode` is *not* in the current state.
+    ///
+    /// The pairing that makes this worth having: an inclusion proof against an earlier
+    /// root and an absence proof against a later one together demonstrate a deletion,
+    /// to someone who holds neither state.
+    ///
+    /// `None` when the inode is present — the caller wants the other kind of proof.
+    pub fn absence_proof(&self, inode: u128) -> Result<Option<nexusfs_zk::merkle::AbsenceProof>> {
+        Ok(nexusfs_zk::merkle::prove_absent(&self.inode_map()?, inode))
+    }
+
+    /// Inclusion proofs for many entries, sharing one traversal of the tree.
+    pub fn inclusion_proofs(
+        &self,
+        inodes: &[u128],
+    ) -> Result<Vec<nexusfs_zk::merkle::InclusionProof>> {
+        Ok(nexusfs_zk::merkle::prove_many(&self.inode_map()?, inodes))
+    }
+
     /// The pure state commitment: a function of applied operations only.
     ///
     /// This — not the head hash — is what two replicas compare to decide whether they

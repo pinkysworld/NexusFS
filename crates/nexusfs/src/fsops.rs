@@ -328,30 +328,73 @@ fn parse_pubkey(s: &str) -> Result<[u8; 32]> {
 /// What `prove` writes and `check-proof` reads.
 #[derive(serde::Serialize, serde::Deserialize)]
 struct PortableProof {
-    /// Human orientation only; the proof is about an inode, not a path.
-    path: String,
-    /// Hex state root the inclusion path reaches.
+    /// Human orientation only; the proof is about an inode, not a path. Absent when the
+    /// subject was named by inode, which is the only way to ask about a missing entry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
+    /// Hex state root the proof is against.
     state_root: String,
     /// Hex device id of the node that produced it, for provenance.
     issuer: String,
     inode: String,
-    proof: nexusfs_zk::merkle::InclusionProof,
+    /// Not `#[serde(flatten)]`: flattening routes the value through serde_json's
+    /// internal representation, which cannot hold the `u128` inode inside the proof.
+    claim: Claim,
 }
 
-pub async fn run_prove(config_path: PathBuf, path: String, out: Option<PathBuf>) -> Result<()> {
+/// Which way round the proof runs.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum Claim {
+    /// The entry is in the committed state, with this content.
+    Present {
+        proof: nexusfs_zk::merkle::InclusionProof,
+    },
+    /// The entry is not in the committed state at all.
+    Absent {
+        proof: nexusfs_zk::merkle::AbsenceProof,
+    },
+}
+
+pub async fn run_prove(
+    config_path: PathBuf,
+    path: Option<String>,
+    inode_arg: Option<String>,
+    out: Option<PathBuf>,
+) -> Result<()> {
     let (core, _identity) = open_repo(&config_path)?;
 
-    let Some((inode, _)) = core.resolve_path(&path)? else {
-        bail!("no such path: {path}");
+    let (inode, path) = match (&path, &inode_arg) {
+        (Some(_), Some(_)) => bail!("give a path or --inode, not both"),
+        (Some(p), None) => {
+            let Some((inode, _)) = core.resolve_path(p)? else {
+                bail!(
+                    "no such path: {p}. To prove something is *absent*, name it with \
+                     --inode: a missing entry has no path to resolve."
+                );
+            };
+            (inode, Some(p.clone()))
+        }
+        (None, Some(hex_inode)) => {
+            let trimmed = hex_inode.trim().trim_start_matches("0x");
+            let inode = u128::from_str_radix(trimmed, 16)
+                .with_context(|| format!("inode {hex_inode:?} is not hexadecimal"))?;
+            (inode, None)
+        }
+        (None, None) => bail!("give a path, or --inode"),
     };
-    let Some(proof) = core.inclusion_proof(inode)? else {
-        bail!(
-            "{path} resolves to inode {inode:x}, which is not in the committed state; \
-             an entry with no content yet has nothing to prove"
-        );
-    };
+
     let Some(state_root) = core.get_state_root()? else {
         bail!("this repository has no state root yet");
+    };
+
+    let claim = match core.inclusion_proof(inode)? {
+        Some(proof) => Claim::Present { proof },
+        None => match core.absence_proof(inode)? {
+            Some(proof) => Claim::Absent { proof },
+            // Neither present nor absent means the map disagrees with itself.
+            None => bail!("inode {inode:x} is neither present nor provably absent"),
+        },
     };
 
     let portable = PortableProof {
@@ -359,14 +402,19 @@ pub async fn run_prove(config_path: PathBuf, path: String, out: Option<PathBuf>)
         state_root: hex::encode(state_root),
         issuer: format!("{:x}", core.device_id.0),
         inode: format!("{inode:x}"),
-        proof,
+        claim,
     };
     let json = serde_json::to_string_pretty(&portable).context("serialize proof")?;
+
+    let subject = portable
+        .path
+        .clone()
+        .unwrap_or_else(|| format!("inode {}", portable.inode));
 
     match out {
         Some(file) => {
             std::fs::write(&file, json).with_context(|| format!("write {}", file.display()))?;
-            println!("wrote proof for {} to {}", portable.path, file.display());
+            println!("wrote proof for {subject} to {}", file.display());
         }
         None => println!("{json}"),
     }
@@ -398,14 +446,32 @@ pub async fn run_check_proof(file: String, root: Option<String>) -> Result<()> {
     let mut expected = [0u8; 32];
     expected.copy_from_slice(&raw);
 
-    nexusfs_zk::merkle::check(&portable.proof, &expected)?;
+    match &portable.claim {
+        Claim::Present { proof } => nexusfs_zk::merkle::check(proof, &expected)?,
+        Claim::Absent { proof } => nexusfs_zk::merkle::check_absent(proof, &expected)?,
+    }
 
-    println!("path:       {}", portable.path);
+    println!(
+        "subject:    {}",
+        portable
+            .path
+            .clone()
+            .unwrap_or_else(|| format!("inode {}", portable.inode))
+    );
     println!("inode:      {}", portable.inode);
     println!("issuer:     {}", portable.issuer);
     println!("state root: {}", hex::encode(expected));
-    println!("object:     {}", hex::encode(portable.proof.value));
-    println!("path steps: {}", portable.proof.steps.len());
+    match &portable.claim {
+        Claim::Present { proof } => {
+            println!("claim:      present");
+            println!("object:     {}", hex::encode(proof.value));
+            println!("path steps: {}", proof.steps.len());
+        }
+        Claim::Absent { proof } => {
+            println!("claim:      absent");
+            println!("map size:   {} entries", proof.len);
+        }
+    }
 
     if root.is_some() {
         println!("\nproof holds against the supplied state root");

@@ -24,7 +24,7 @@ The key rule is simple: every milestone must leave behind a repository that stil
 - `M5` complete: energy-aware replication scheduling
 - `M6` complete: operator tooling and failure-mode cover
 - `M7` complete: a Merkle state commitment with checkable inclusion proofs
-- `M8` next
+- `M8` complete for the tracks that were engineering; the rest is named as research
 
 The workspace, daemon, storage baseline, docs, and the local filesystem core are real: a
 signed operation log drives CRDT-backed namespace state, files round-trip through the CLI,
@@ -288,19 +288,42 @@ entries that bracket a gap, but nothing needs it yet.
 
 ### M8: Research Expansion
 
-Status: Not started
+Status: Complete for the tracks that could be built and tested. The remainder is named
+below rather than left implied.
 
 Primary goal:
 
 - expand beyond the practical baseline into deeper research tracks once the core system is stable
 
-Candidate tracks:
+Candidate tracks, and what happened to each:
 
-- stronger privacy layers
-- proof batching
-- DTN/store-carry-forward replication modes
-- richer policy systems
-- additional ZK coverage
+- **proof batching** — done. `prove_many` builds the tree once and reads every requested
+  path out of the same levels. Convenience rather than compression: the paths still
+  travel in full, but the *prover* stops rebuilding the tree per entry, which is the
+  cost that hurts when answering for a whole directory.
+- **additional ZK coverage** — done as absence proofs, which complete the commitment
+  story: an inclusion proof against an old root and an absence proof against a new one
+  demonstrate a deletion to someone holding neither state.
+- **stronger privacy layers** — not built. The obvious next step is per-recipient key
+  envelopes so replicas need not share one repository key; `crypto::envelope` already
+  seals and opens but is not wired into the write path. Encrypting names and directory
+  structure is a larger change and would break the S3 facade's key mapping.
+- **DTN / store-carry-forward** — not built. The replication session is already
+  pull-based, resumable and budget-aware, which is most of what a delay-tolerant mode
+  needs; what is missing is a transport that is not a live socket.
+- **richer policy systems** — not built, and deliberately not sketched. Policy without a
+  concrete requirement produces configuration nobody uses.
+
+Also delivered under this milestone, from the performance backlog: durability moved from
+the record to the operation boundary, which made applying an operation 6.8-9.5x faster.
+
+## What is still open
+
+- Incremental snapshots. The state-root walk is now the visible cost of an apply —
+  3.6ms at 1000 entries, roughly 40% — and it grows with the tree. Making it incremental
+  needs parent pointers and a persisted inode map.
+- The POSIX/FUSE facade, which is the only unbuilt item from M2.
+- A proving system, which stays behind its own milestone for the reasons in M7.
 
 Exit criteria:
 
@@ -318,7 +341,7 @@ The preferred delivery order is:
 5. Integrate M5 energy-aware scheduling (done)
 6. Harden operations in M6 (done)
 7. Introduce M7 ZK commitments (done)
-8. Expand research work in M8
+8. Expand research work in M8 (done for the buildable tracks)
 
 ## Critical Dependencies
 

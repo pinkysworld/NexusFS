@@ -16,7 +16,7 @@ NexusFS is a single-executable, verifiable distributed file system for edge and 
 
 ## Where The Project Actually Is
 
-**Milestones M0 through M7 are complete.** The local filesystem works: files can be
+**Milestones M0 through M8 are complete.** The local filesystem works: files can be
 created, written, listed, read back, renamed and removed through a signed operation log
 applied to CRDT-backed namespace state, and that state survives restart. Operations
 converge to the same result regardless of the order they arrive in.
@@ -30,7 +30,8 @@ operators have real tooling: reclaiming unreachable storage, upgrading across on
 formats, and enrolling peer keys without depending on trust-on-first-use. The state root
 is a Merkle commitment, so any single entry can be proved to someone holding no
 filesystem — `nexusfs prove` emits such a proof and `nexusfs check-proof` verifies one
-without opening a repository.
+without opening a repository. Absence is provable too, so an inclusion proof against an
+old root and an absence proof against a new one demonstrate a deletion.
 
 **Still unimplemented:** the POSIX/FUSE facade, per-recipient key envelopes (replicas
 share one repository key), metered-link detection, and zero-knowledge proving. The

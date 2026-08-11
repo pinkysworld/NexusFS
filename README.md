@@ -5,7 +5,7 @@
 A Rust workspace building toward a verifiable, offline-first distributed filesystem in a
 single binary.
 
-> **Status — milestones M0–M7 of 8 complete.** Files round-trip through a signed
+> **Status — milestones M0–M8 of 8 complete.** Files round-trip through a signed
 > operation log applied to CRDT-backed namespace state, an S3-compatible facade exposes
 > that state over HTTP, **two nodes converge over QUIC** with every operation and chunk
 > verified before it is accepted, **content can be encrypted at rest** while still
@@ -13,8 +13,9 @@ single binary.
 > content while still tracking the namespace when the battery is low, the machine is hot,
 > or the link is metered. Operators get **garbage collection, format versioning and
 > explicit peer enrolment**, and the state root is now a **Merkle commitment** whose
-> entries can be proved individually. The POSIX/FUSE facade is **not implemented yet**,
-> and the commitment layer is **not zero-knowledge** — see below. Full detail in
+> entries can be proved individually — including proving that one is **absent**, which
+> makes a deletion demonstrable. The POSIX/FUSE facade is **not implemented yet**, and
+> the commitment layer is **not zero-knowledge** — see below. Full detail in
 > [`documentation/current-status.md`](documentation/current-status.md).
 
 ## Try it in your browser
@@ -259,9 +260,30 @@ path is exactly the witness a SNARK circuit would consume — the commitment hal
 work — not because a proving system is involved. `zk_full` remains unimplemented and
 behaves as `none`.
 
-Proving *absence* — that a file is not in a state — needs a different construction and
-is not built. The sorted layout supports the usual approach of proving the two entries
-that bracket the gap.
+### Proving something is gone
+
+Absence needs a different construction, because a path that resolves to nothing has no
+inode to name. Ask by inode instead:
+
+```bash
+cargo run -p nexusfs -- prove --config ./nexusfs.toml --inode <inode> --out gone.json
+```
+
+The leaves are sorted, so absence is the claim that two *adjacent* entries straddle the
+inode — there is nowhere else it could be. Adjacency is the load-bearing part: two
+entries that merely bracket it prove nothing, since the inode could be one of the
+entries between them. Each neighbour therefore states its position, and that position is
+checked against the shape its path must have in a map of that size.
+
+Pairing the two directions is what makes a deletion demonstrable to someone holding
+neither state:
+
+```bash
+# it was there
+nexusfs check-proof existed.json --root <root-before>   # claim: present
+# and it is not there now
+nexusfs check-proof gone.json    --root <root-after>    # claim: absent
+```
 
 ---
 

@@ -15,11 +15,13 @@ It is intentionally biased toward execution order, not just feature categories.
 
 ## Recently Completed
 
-Milestones M0 through M7 are done: the local state machine, the S3 facade, QUIC
+Milestones M0 through M8 are done: the local state machine, the S3 facade, QUIC
 replication with verified remote apply, encryption at rest with transparent proofs,
 energy-aware replication scheduling, operator tooling — collection, format versioning and
-explicit peer enrolment — and a Merkle state commitment with checkable inclusion proofs.
-See `./current-status.md`.
+explicit peer enrolment — a Merkle state commitment with checkable inclusion and absence
+proofs, and the storage durability work that made an apply 6.8-9.5x faster. M8's
+remaining research tracks are named in `./roadmap.md` rather than left implied. See
+`./current-status.md`.
 
 ## Now
 
@@ -34,8 +36,8 @@ See `./current-status.md`.
 
 ### Proof Follow-Ups
 
-- Absence proofs: prove the two entries bracketing a gap, so a deletion is provable.
-- Batch inclusion proofs for a whole directory rather than one entry at a time.
+- Compressed batches: `prove_many` shares the traversal but still sends every path in
+  full. Overlapping paths could share their common upper steps.
 - A proving system, if and when the commitment moves to a circuit-friendly hash. This is
   research, not engineering, and should stay behind its own milestone.
 
@@ -64,8 +66,6 @@ See `./current-status.md`.
 
 ### Performance
 
-- Batch storage writes. `SledStore` flushes on every put, costing an fsync per chunk and
-  per state record.
 - Rebuild snapshots incrementally. Every applied operation currently re-materializes
   every directory on the path to the change, which is both the main cost of an apply and
   the main source of collectable garbage.
@@ -115,10 +115,10 @@ See `./current-status.md`.
 
 The most effective execution order right now is:
 
-1. Close the energy follow-ups, chiefly on-demand fetch of deferred content.
-2. Performance: incremental snapshots and batched storage writes, which are now the
-   clearest wins and are what the commitment layer made more expensive.
-3. Implement the POSIX/FUSE facade.
+1. Incremental snapshots — measured at ~40% of an apply and growing with the tree, which
+   makes it the largest remaining win rather than a guess.
+2. Close the energy follow-ups, chiefly on-demand fetch of deferred content.
+3. Implement the POSIX/FUSE facade, the only unbuilt item from M2.
 
 ## Definition Of “Ready To Leave Backlog”
 

@@ -40,7 +40,12 @@ async fn main() -> Result<()> {
         Command::Gc { config, apply } => fsops::run_gc(config, apply).await,
         Command::Migrate { config } => fsops::run_migrate(config).await,
         Command::Peer { action } => fsops::run_peer(action).await,
-        Command::Prove { config, path, out } => fsops::run_prove(config, path, out).await,
+        Command::Prove {
+            config,
+            path,
+            inode,
+            out,
+        } => fsops::run_prove(config, path, inode, out).await,
         Command::CheckProof { file, root } => fsops::run_check_proof(file, root).await,
     }
 }

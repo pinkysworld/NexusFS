@@ -37,7 +37,7 @@
             <p class="eyebrow">Current Status</p>
             <h1>Encrypted, replicated, operable, and provable.</h1>
             <p class="lede">
-              Milestones M0 through M7 are complete: files round-trip through a signed
+              All eight milestones are complete: files round-trip through a signed
               operation log applied to CRDT-backed namespace state, an S3-compatible API
               exposes that state over HTTP, two nodes converge over QUIC with every
               operation and chunk verified before it is accepted, content is encrypted at
@@ -45,8 +45,8 @@
               transfers to the device's power, heat and link cost, operators can reclaim
               storage, upgrade across on-disk formats and enrol peer keys ahead of first
               contact, and the state root is a Merkle commitment whose entries can be
-              proved individually. The POSIX facade and a real proving system are still
-              in the backlog.
+              proved present or proved absent. The POSIX facade and a real proving system
+              are still in the backlog, and named as such rather than implied.
             </p>
           </div>
         </section>
@@ -87,8 +87,8 @@
               <h3>Provable state</h3>
               <p>
                 <code>prove</code> emits a self-contained proof that a path holds its
-                content; <code>check-proof</code> verifies one without opening any
-                repository. A commitment scheme, not zero-knowledge.
+                content — or that an inode is gone; <code>check-proof</code> verifies one
+                without opening any repository. A commitment scheme, not zero-knowledge.
               </p>
             </article>
             <article class="feature-card">
@@ -121,6 +121,7 @@
               <li>Energy-aware replication budgets, observable at <code>/api/energy</code></li>
               <li>Garbage collection, an enforced format version, and peer enrolment</li>
               <li>Merkle state commitments with proofs anyone can check offline</li>
+              <li>Absence proofs, so a deletion is demonstrable</li>
             </ul>
           </div>
           <div class="content-panel">
@@ -131,7 +132,7 @@
               <li>Metered-link detection, so that scheduler rule can fire in the field</li>
               <li>Per-recipient key envelopes, so replicas need not share one key</li>
               <li>Collecting orphaned inode records, not only unreachable blobs</li>
-              <li>Absence proofs — showing a file is <em>not</em> in a state</li>
+              <li>Incremental snapshots — the largest remaining win, by measurement</li>
               <li>A real proving system, which needs a circuit-friendly hash</li>
             </ul>
           </div>

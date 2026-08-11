@@ -99,7 +99,15 @@ pub enum Command {
     Prove {
         #[arg(long)]
         config: PathBuf,
-        path: String,
+        /// Path to prove. Omit when using --inode.
+        path: Option<String>,
+        /// Prove about an inode instead of a path.
+        ///
+        /// The only way to ask about something that is *not* there: an absent entry has
+        /// no path to resolve. Pair an inclusion proof against an old root with an
+        /// absence proof against a new one to demonstrate a deletion.
+        #[arg(long)]
+        inode: Option<String>,
         /// Write to a file instead of stdout.
         #[arg(long)]
         out: Option<PathBuf>,

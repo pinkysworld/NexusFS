@@ -6,14 +6,15 @@ This page summarizes what NexusFS currently implements in the repository and wha
 
 ## Overall State
 
-**Milestones M0 through M7 are complete.** NexusFS is a working distributed filesystem:
+**Milestones M0 through M8 are complete**, with M8's research tracks split between what could be built and what is named as open. NexusFS is a working distributed filesystem:
 files round-trip through a signed operation log applied to CRDT-backed namespace state,
 an S3-compatible API exposes that state over HTTP, two nodes converge over QUIC with
 every operation and chunk verified before it is accepted, content can be encrypted at
 rest while still replicating, and replication adapts what it transfers to the device's
 power, thermal and link situation. Operators can reclaim storage, upgrade across on-disk
 formats, and enrol peers without relying on trust-on-first-use. The state root is a
-Merkle commitment, so any single entry can be proved to a party holding no filesystem.
+Merkle commitment, so any single entry can be proved to a party holding no filesystem —
+including proving an entry is *absent*, which makes a deletion demonstrable.
 
 Not yet implemented: the POSIX/FUSE facade, and zero-knowledge proving — the commitment
 layer is deliberately not that, for reasons recorded below.
@@ -293,6 +294,39 @@ therefore came with on-disk format v2 and PROTOCOL_VERSION 2, so a stale store i
 refused until migrated and a mismatched peer refuses the handshake rather than syncing
 and then disagreeing forever.
 
+### Absence Proofs And Batching
+
+Absence needs a different construction from inclusion, because a path that resolves to
+nothing has no inode to name — so it is asked by inode. The leaves are sorted, which
+makes absence the claim that two *adjacent* entries straddle the inode: there is nowhere
+else it could be.
+
+Adjacency is what the proof rests on. Two entries that merely bracket the inode prove
+nothing, because the inode could be one of the entries between them. Each neighbour
+therefore states its index, and that index is checked against the shape its path must
+have in a map of that size — a property that holds because a path shape identifies
+exactly one position, which is itself covered by a test.
+
+Pairing directions is the point: an inclusion proof against an old root plus an absence
+proof against a new one demonstrates a deletion to someone holding neither state.
+
+`prove_many` answers for several entries from one traversal. This is convenience rather
+than compression — the paths still travel in full — but the prover stops rebuilding the
+tree per entry, which is the cost that hurts when answering for a whole directory.
+
+### Storage Durability
+
+Writes are no longer individually durable. An operation touches about a dozen keys, and
+syncing each one bought a guarantee nobody wants: that *half* an operation survives a
+crash. Durability now sits at the operation boundary, where losing a whole operation is
+the failure — and it is the one the design already tolerates, since applying is
+idempotent and a peer still holds it.
+
+Measured on this machine: 58.7ms to 6.2ms per operation at 250 entries, 62.8ms to 9.3ms
+at 1000. Paths that do not end in an applied operation — peer enrolment, the format
+stamp, collection, bootstrap — carry their own flush rather than relying on the database
+being dropped cleanly, which a killed process never does.
+
 ### Browser Playground
 
 `crates/wasm` compiles the core to `wasm32-unknown-unknown` against the in-memory
@@ -308,7 +342,7 @@ daemon uses between real nodes.
 
 ### Test Coverage
 
-143 tests, including order-independent convergence (the same operation set applied in
+155 tests, including order-independent convergence (the same operation set applied in
 different orders yields an identical state root), idempotent re-apply, pending-op drain,
 concurrent-create conflict naming, concurrent-write resolution, rename-vs-unlink,
 subtree-cycle refusal, restart persistence, S3 key mapping and pagination, and
@@ -329,7 +363,10 @@ head rebuilt from live state.
 M7 adds the Merkle commitment (determinism, every-entry inclusion at every tree size,
 tag confusion, trailing-node malleability, tampered values, siblings and sides, and path
 length bounds) and the commitment proof mode end to end, including verification by a
-party holding no repository.
+party holding no repository. M8 adds absence proofs — every gap at every tree size,
+plus the forgeries they must refuse: non-adjacent neighbours, a neighbour that does not
+bracket, a middle entry dressed up as the last, and a neighbour claiming an index its
+path shape does not support.
 
 ## Partially Implemented Or Present As Scaffolding
 
@@ -381,7 +418,9 @@ party holding no repository.
 - M6 is complete: collection, format versioning, peer enrolment and failure-mode cover.
 - M7 is complete as a commitment layer; the proving-system half is deliberately not
   built, and the roadmap records why.
-- M8 is backlog.
+- M8 is complete for the tracks that were engineering — proof batching, absence proofs,
+  and the storage durability work. Privacy layers, delay-tolerant replication and policy
+  systems are named as open rather than left implied.
 
 ## Deliberately Not Built
 
@@ -395,10 +434,15 @@ party holding no repository.
 - **Persisted telemetry snapshots** (M5). A power reading from before a restart
   describes a machine that may since have been unplugged.
 
-## Recommended Next Step
+## Recommended Next Step (updated)
 
-Close the loop the energy scheduler opened: fetch deferred content on demand at read
-time. A node running metadata-only already knows a file exists and which chunks it needs;
+Incremental snapshots. With durability fixed, the state-root walk is the visible cost of
+an apply — 3.6ms at 1000 entries, about 40%, and growing with the tree. Making it
+incremental needs parent pointers and a persisted inode map, so it is a design change
+rather than a tweak, but it is now the largest remaining win by measurement.
+
+After that, close the loop the energy scheduler opened: fetch deferred content on demand
+at read time. A node running metadata-only already knows a file exists and which chunks it needs;
 today a read of that file fails until the next unconstrained sync pass happens to bring
 the bytes. Pulling the missing chunks when someone actually opens the file is what turns
 "deferred" from a gap into a policy, and it reuses the blob phase of the existing
