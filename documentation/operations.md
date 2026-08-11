@@ -42,6 +42,7 @@ header. It serves a small console plus a JSON API:
 | `/api/fs/head` | the current head hash |
 | `/api/fs/ls?path=` | a directory listing from live namespace state |
 | `/api/fs/cat?path=` | file contents, capped and binary-aware |
+| `/api/fs/proof?path=` | a self-contained inclusion proof for one entry |
 | `/api/oplog/summary` | per-device replication progress |
 | `/api/oplog/recent?limit=` | the most recent operations |
 | `/api/storage/stats` | blob count and bytes |
@@ -83,6 +84,8 @@ cannot run while the daemon holds the store. Query the running daemon instead.
 | `nexusfs migrate` | upgrade the on-disk format |
 | `nexusfs peer identity` | this node's device id and public key |
 | `nexusfs peer list/add/remove` | manage which peers are trusted |
+| `nexusfs prove <path>` | emit a proof that a path holds its current content |
+| `nexusfs check-proof <file>` | verify one, without opening any repository |
 
 All of them take the store's exclusive lock, so none can run while the daemon holds it.
 That is also why `/api/storage/gc` only surveys: a running daemon can write a blob
@@ -96,6 +99,20 @@ The repository records the on-disk format it was written with, and a build that 
 match refuses to open it — older with a pointer to `nexusfs migrate`, newer with no way
 forward at all. Opening never migrates by itself, because a migration rewrites records
 in place. Back up the data directory first.
+
+### Proving state to someone else
+
+The state root is a Merkle commitment, so a single entry can be proved on its own:
+
+```
+nexusfs prove --config ./nexusfs.toml /docs/note.txt --out note.json
+nexusfs check-proof note.json --root <root-you-obtained-independently>
+```
+
+`check-proof` opens no repository — if it needed one, the proof would not be establishing
+anything the holder could not already see. Supply `--root` from a source you trust;
+without it the command checks the proof against the root recorded inside itself and says
+plainly that this proves only internal consistency.
 
 ### Enrolling peers
 

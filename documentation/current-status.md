@@ -1,20 +1,22 @@
 # Current Status
 
-Last updated: August 5, 2026
+Last updated: August 11, 2026
 
 This page summarizes what NexusFS currently implements in the repository and what remains in the backlog.
 
 ## Overall State
 
-**Milestones M0 through M6 are complete.** NexusFS is a working distributed filesystem:
+**Milestones M0 through M7 are complete.** NexusFS is a working distributed filesystem:
 files round-trip through a signed operation log applied to CRDT-backed namespace state,
 an S3-compatible API exposes that state over HTTP, two nodes converge over QUIC with
 every operation and chunk verified before it is accepted, content can be encrypted at
 rest while still replicating, and replication adapts what it transfers to the device's
 power, thermal and link situation. Operators can reclaim storage, upgrade across on-disk
-formats, and enrol peers without relying on trust-on-first-use.
+formats, and enrol peers without relying on trust-on-first-use. The state root is a
+Merkle commitment, so any single entry can be proved to a party holding no filesystem.
 
-Not yet implemented: the POSIX/FUSE facade and ZK proofs.
+Not yet implemented: the POSIX/FUSE facade, and zero-knowledge proving — the commitment
+layer is deliberately not that, for reasons recorded below.
 
 ## Implemented Now
 
@@ -252,6 +254,45 @@ different key requires `--rotate`, because a silent overwrite would erase the on
 distinguishing a planned rotation from an impersonation attempt. Two nodes with
 `net.tofu = false` converge on pre-enrolled keys alone.
 
+### State Commitments And Inclusion Proofs
+
+The state root used to be a single BLAKE3 over the sorted inode map. It said whether two
+replicas agreed and nothing else: convincing anyone of one fact meant handing them the
+whole state. It is now a Merkle root over the same leaves, so a single entry can be
+proved with the root, the inode, its object hash and O(log n) sibling hashes.
+
+`nexusfs prove <path>` emits a self-contained proof; `nexusfs check-proof` verifies one
+without opening a repository at all. Without an explicit `--root` it reports that it
+only established internal consistency — a proof checked against the root recorded inside
+itself says nothing about whether that root is one anyone else agrees with.
+`/api/fs/proof?path=` serves the same structure.
+
+Setting `security.proof_mode = "zk_commit"` attaches an inclusion path for the entry each
+operation is about, and a receiver checks it against the root the operation claims. That
+is strictly more than a transparent proof offers: a transparent proof can only be judged
+by someone who already holds the author's prior state. Transparent bundles are still
+accepted under commit policy — they prove less but are not wrong, and refusing them would
+make the mode unusable mid-rollout. An operation whose subject is not in the live tree
+falls back to a transparent bundle rather than proving some other entry.
+
+Three Merkle details that are easy to get wrong, and are covered by tests: leaves and
+interior nodes carry distinct tag bytes, so an interior node's preimage cannot be passed
+off as a leaf; a lone trailing node is promoted rather than hashed with a copy of itself,
+which would let two different leaf sets share a root; and path length is bounded so a
+hostile proof cannot cost unbounded work to reject.
+
+**This is a commitment scheme, not zero-knowledge.** A verifier learns the inode being
+proved and its object hash; what it does not learn is the rest of the tree. The mode is
+named `ZkCommit` because an inclusion path is exactly the witness a SNARK circuit would
+consume — the commitment half of the job. `zk_full` remains unimplemented and behaves as
+`none`. Proving *absence* is also unbuilt.
+
+Because the commitment *is* the state root, it is not compile-time optional: a build
+computing a different root could never replicate with one that did not. Changing it
+therefore came with on-disk format v2 and PROTOCOL_VERSION 2, so a stale store is
+refused until migrated and a mismatched peer refuses the handshake rather than syncing
+and then disagreeing forever.
+
 ### Browser Playground
 
 `crates/wasm` compiles the core to `wasm32-unknown-unknown` against the in-memory
@@ -267,7 +308,7 @@ daemon uses between real nodes.
 
 ### Test Coverage
 
-115 tests, including order-independent convergence (the same operation set applied in
+143 tests, including order-independent convergence (the same operation set applied in
 different orders yields an identical state root), idempotent re-apply, pending-op drain,
 concurrent-create conflict naming, concurrent-write resolution, rename-vs-unlink,
 subtree-cycle refusal, restart persistence, S3 key mapping and pagination, and
@@ -284,6 +325,11 @@ twice is stable and that it does not hide pre-existing damage), format refusals 
 directions, enrolment and rotation, and failure modes: missing chunks, content that no
 longer matches its hash, forged operations, an unspliceable partial write, and a lost
 head rebuilt from live state.
+
+M7 adds the Merkle commitment (determinism, every-entry inclusion at every tree size,
+tag confusion, trailing-node malleability, tampered values, siblings and sides, and path
+length bounds) and the commitment proof mode end to end, including verification by a
+party holding no repository.
 
 ## Partially Implemented Or Present As Scaffolding
 
@@ -333,7 +379,21 @@ head rebuilt from live state.
 - M4 is complete: encryption at rest and transparent proofs.
 - M5 is complete: telemetry, a rule-based scheduler, and replication that honours it.
 - M6 is complete: collection, format versioning, peer enrolment and failure-mode cover.
-- M7 and M8 are backlog, except for crate scaffolding and interface placeholders.
+- M7 is complete as a commitment layer; the proving-system half is deliberately not
+  built, and the roadmap records why.
+- M8 is backlog.
+
+## Deliberately Not Built
+
+- **A proving system.** Adopting one means a proving backend, a setup ceremony, and
+  arithmetizing the hash — BLAKE3 is hostile to circuits, so a real implementation would
+  move the commitment to something like Poseidon and change the state root again. That
+  is its own milestone-sized risk, and a stub resembling a circuit would be worse than
+  an honest commitment layer.
+- **Absence proofs.** The sorted leaf layout supports proving the two entries that
+  bracket a gap; nothing needs it yet.
+- **Persisted telemetry snapshots** (M5). A power reading from before a restart
+  describes a machine that may since have been unplugged.
 
 ## Recommended Next Step
 

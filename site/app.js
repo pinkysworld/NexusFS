@@ -44,10 +44,16 @@ const milestoneData = [
     body: "Reclaiming unreachable storage, an enforced on-disk format version with a migration path, and enrolling peer keys ahead of first contact so trust-on-first-use is optional rather than the only route."
   },
   {
-    label: "M7–M8",
-    title: "ZK commitments and privacy",
+    label: "M7",
+    title: "State commitments",
+    status: "done",
+    body: "The state root is a Merkle tree, so any one entry can be proved to someone holding no filesystem at all — a root, an inode, its hash and a handful of siblings. A commitment scheme rather than zero-knowledge: the verifier learns the entry being proved, just not the rest of the tree."
+  },
+  {
+    label: "M8",
+    title: "Research expansion",
     status: "todo",
-    body: "Commitment-oriented proof systems and private metadata research, feature-gated so the practical baseline never depends on them. Neither is started."
+    body: "Stronger privacy layers, proof batching, delay-tolerant replication and a real proving system — the last of which needs a circuit-friendly hash and a setup ceremony, so it stays behind its own milestone. Not started."
   }
 ];
 

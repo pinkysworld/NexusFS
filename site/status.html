@@ -35,16 +35,18 @@
         <section class="hero hero-compact reveal">
           <div class="hero-copy">
             <p class="eyebrow">Current Status</p>
-            <h1>Encrypted, replicated, auditable, and operable.</h1>
+            <h1>Encrypted, replicated, operable, and provable.</h1>
             <p class="lede">
-              Milestones M0 through M6 are complete: files round-trip through a signed
+              Milestones M0 through M7 are complete: files round-trip through a signed
               operation log applied to CRDT-backed namespace state, an S3-compatible API
               exposes that state over HTTP, two nodes converge over QUIC with every
               operation and chunk verified before it is accepted, content is encrypted at
               rest without breaking that verification, replication adapts what it
-              transfers to the device's power, heat and link cost, and operators can
-              reclaim storage, upgrade across on-disk formats and enrol peer keys ahead
-              of first contact. The POSIX facade and ZK proofs are still in the backlog.
+              transfers to the device's power, heat and link cost, operators can reclaim
+              storage, upgrade across on-disk formats and enrol peer keys ahead of first
+              contact, and the state root is a Merkle commitment whose entries can be
+              proved individually. The POSIX facade and a real proving system are still
+              in the backlog.
             </p>
           </div>
         </section>
@@ -82,6 +84,14 @@
               </p>
             </article>
             <article class="feature-card">
+              <h3>Provable state</h3>
+              <p>
+                <code>prove</code> emits a self-contained proof that a path holds its
+                content; <code>check-proof</code> verifies one without opening any
+                repository. A commitment scheme, not zero-knowledge.
+              </p>
+            </article>
+            <article class="feature-card">
               <h3>Highest-value backlog</h3>
               <p>
                 Fetching deferred content on demand, so a node that skipped the bytes to
@@ -110,6 +120,7 @@
               <li>Signed transparent proofs and a <code>verify</code> audit command</li>
               <li>Energy-aware replication budgets, observable at <code>/api/energy</code></li>
               <li>Garbage collection, an enforced format version, and peer enrolment</li>
+              <li>Merkle state commitments with proofs anyone can check offline</li>
             </ul>
           </div>
           <div class="content-panel">
@@ -120,7 +131,8 @@
               <li>Metered-link detection, so that scheduler rule can fire in the field</li>
               <li>Per-recipient key envelopes, so replicas need not share one key</li>
               <li>Collecting orphaned inode records, not only unreachable blobs</li>
-              <li>Zero-knowledge proof modes</li>
+              <li>Absence proofs — showing a file is <em>not</em> in a state</li>
+              <li>A real proving system, which needs a circuit-friendly hash</li>
             </ul>
           </div>
         </section>

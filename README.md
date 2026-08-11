@@ -5,15 +5,17 @@
 A Rust workspace building toward a verifiable, offline-first distributed filesystem in a
 single binary.
 
-> **Status — milestones M0–M6 of 8 complete.** Files round-trip through a signed
+> **Status — milestones M0–M7 of 8 complete.** Files round-trip through a signed
 > operation log applied to CRDT-backed namespace state, an S3-compatible facade exposes
 > that state over HTTP, **two nodes converge over QUIC** with every operation and chunk
 > verified before it is accepted, **content can be encrypted at rest** while still
 > replicating, and **replication now adapts to the device's power situation** — deferring
 > content while still tracking the namespace when the battery is low, the machine is hot,
 > or the link is metered. Operators get **garbage collection, format versioning and
-> explicit peer enrolment**. The POSIX/FUSE facade and ZK proofs are **not implemented
-> yet**. See [`documentation/current-status.md`](documentation/current-status.md).
+> explicit peer enrolment**, and the state root is now a **Merkle commitment** whose
+> entries can be proved individually. The POSIX/FUSE facade is **not implemented yet**,
+> and the commitment layer is **not zero-knowledge** — see below. Full detail in
+> [`documentation/current-status.md`](documentation/current-status.md).
 
 ## Try it in your browser
 
@@ -73,7 +75,7 @@ cargo run -p nexusfs -- status --config ./nexusfs.toml
 ```
 
 Commands: `mkdir [-p]`, `put`, `cat`, `ls`, `rm`, `mv`, `status`, `verify`, `gc`,
-`migrate`, `peer`, `daemon`.
+`migrate`, `peer`, `prove`, `check-proof`, `daemon`.
 
 Run the daemon for the admin console on <http://127.0.0.1:7070> — it browses the
 filesystem, shows replication and power state, and audits the repository on request:
@@ -147,8 +149,9 @@ works as a cron or CI check. The same report is served at `/api/security`.
 
 **Limits worth knowing.** Replicas share one repository key, so this protects the disk
 and the wire, not one peer from another. File names, directory structure and file sizes
-are not encrypted. `zk_commit` and `zk_full` are accepted as config values but are not
-implemented, and behave as `none` rather than pretending to prove anything.
+are not encrypted. `zk_commit` is implemented — see [Provable state](#provable-state) —
+but is a commitment scheme rather than zero-knowledge. `zk_full` is accepted as a config
+value and behaves as `none` rather than pretending to prove anything.
 
 ---
 
@@ -212,6 +215,53 @@ cargo run -p nexusfs -- peer add --config ./nexusfs.toml <device-id> <pubkey>
 `peer list` shows what is enrolled and `peer remove` forgets a key. Enrolling a
 *different* key for a known device needs `--rotate`: overwriting silently would erase
 the one signal that separates a planned rotation from an impersonation attempt.
+
+---
+
+## Provable state
+
+The state root is a Merkle commitment over the inode map. Two replicas still compare a
+single hash to decide whether they agree — but now any one entry can be proved on its
+own, to someone holding no filesystem at all.
+
+```bash
+cargo run -p nexusfs -- prove --config ./nexusfs.toml /docs/note.txt --out note.json
+```
+
+That writes a self-contained proof: the inode, its object hash, and the sibling hashes
+up to the root. Checking it opens no repository:
+
+```bash
+cargo run -p nexusfs -- check-proof note.json --root <state-root>
+```
+
+Pass `--root` with a root you obtained independently. Without it, the proof is checked
+against the root recorded *inside itself*, which confirms internal consistency and
+nothing about whether that state is one anyone else agrees with — the command says so
+rather than printing a bare "valid". `/api/fs/proof?path=` serves the same structure.
+
+Turning it on for operations:
+
+```toml
+[security]
+proof_mode = "zk_commit"
+```
+
+Each local operation then carries an inclusion path for the entry it is about, and a
+receiver checks that path against the root the operation claims — without holding the
+author's prior state, which a transparent proof requires. Transparent proofs are still
+accepted under this policy: they prove less, but they are not wrong, and refusing them
+would make the mode unusable while a cluster is being upgraded.
+
+**This is not zero-knowledge.** A verifier learns the inode and its object hash; what it
+does not learn is the rest of the tree. The mode is named `zk_commit` because a sibling
+path is exactly the witness a SNARK circuit would consume — the commitment half of the
+work — not because a proving system is involved. `zk_full` remains unimplemented and
+behaves as `none`.
+
+Proving *absence* — that a file is not in a state — needs a different construction and
+is not built. The sorted layout supports the usual approach of proving the two entries
+that bracket the gap.
 
 ---
 

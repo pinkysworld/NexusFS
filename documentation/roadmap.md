@@ -23,7 +23,8 @@ The key rule is simple: every milestone must leave behind a repository that stil
 - `M4` complete: encryption at rest and transparent proofs
 - `M5` complete: energy-aware replication scheduling
 - `M6` complete: operator tooling and failure-mode cover
-- `M7` next
+- `M7` complete: a Merkle state commitment with checkable inclusion proofs
+- `M8` next
 
 The workspace, daemon, storage baseline, docs, and the local filesystem core are real: a
 signed operation log drives CRDT-backed namespace state, files round-trip through the CLI,
@@ -240,7 +241,7 @@ Exit criteria:
 
 ### M7: ZK Commitments
 
-Status: Not started
+Status: Complete, with one deliverable deliberately scoped down — see below.
 
 Primary goal:
 
@@ -248,15 +249,42 @@ Primary goal:
 
 Deliverables:
 
-- first `ZkCommit`-mode proof circuit
-- one end-to-end proof generation path
-- receiver-side verification integration
-- a clear fallback path to transparent proofs
+- first `ZkCommit`-mode proof **circuit** — delivered as a commitment scheme, not a
+  circuit. The state root became a Merkle tree and operations carry inclusion paths.
+  See "What was not built" below.
+- one end-to-end proof generation path — done: `nexusfs prove` emits a self-contained
+  proof, `nexusfs check-proof` verifies one without opening a repository, and
+  `/api/fs/proof` serves the same structure
+- receiver-side verification integration — done: `proof_mode = "zk_commit"` attaches an
+  inclusion path per operation, checked on receipt against the root it claims
+- a clear fallback path to transparent proofs — done: transparent bundles remain
+  acceptable under commit policy, and an operation whose subject is not in the live tree
+  emits a transparent bundle rather than proving the wrong entry
 
 Exit criteria:
 
-- one concrete operation type can be proved and verified end to end
-- ZK mode remains optional and feature-gated
+- one concrete operation type can be proved and verified end to end — met for every
+  operation type, and verified by a party holding no filesystem state
+- ZK mode remains optional — met: `proof_mode` selects it per node, and transparent
+  interoperates. Not *feature-gated* at compile time, because the commitment is the
+  state root: a build that computed a different root could never replicate with one
+  that did not, so making it conditional would be a convergence hazard rather than an
+  option
+
+## What was not built
+
+A proving system. `ZkCommit` names the commitment half of what a SNARK needs — an
+inclusion path is exactly the witness a circuit would consume — and stops there.
+
+Going further means adopting a proving backend, choosing a transparent or trusted setup,
+and arithmetizing the hash. BLAKE3 is hostile to circuits, so a real implementation would
+switch the commitment to something like Poseidon, which changes the state root again.
+That is a research effort with its own milestone-sized risk, and a stub that looked like
+a circuit would be worse than an honest commitment layer.
+
+`zk_full` therefore remains unimplemented and behaves as `none`. Proving *absence* is
+also unbuilt: the sorted leaf layout supports the usual approach of proving the two
+entries that bracket a gap, but nothing needs it yet.
 
 ### M8: Research Expansion
 
@@ -289,7 +317,7 @@ The preferred delivery order is:
 4. Add M4 encryption and transparent proofs (done)
 5. Integrate M5 energy-aware scheduling (done)
 6. Harden operations in M6 (done)
-7. Introduce M7 ZK commitments
+7. Introduce M7 ZK commitments (done)
 8. Expand research work in M8
 
 ## Critical Dependencies

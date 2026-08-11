@@ -34,10 +34,17 @@ mountpoint = "/mnt/nexus"
 # data_dir/repo.key on first use; back it up, because without it the content is
 # unrecoverable. Replicas need the same key to read each other's files.
 encrypt_at_rest = false
-# none | transparent | required
+# none | transparent | required | zk_commit
 #   transparent: attach signed evidence to local operations, reject malformed evidence
 #   required:    as above, and refuse operations that carry no proof at all
-# zk_commit and zk_full are accepted but unimplemented, and behave as none.
+#   zk_commit:   attach a Merkle inclusion path for the entry each operation is about,
+#                so a receiver can check the claim against the root without holding the
+#                author's prior state. Transparent proofs are still accepted, so a
+#                cluster can be upgraded a node at a time.
+#
+# zk_commit is a commitment scheme, not zero-knowledge: a verifier learns the inode and
+# its object hash, just not the rest of the tree. zk_full is accepted and behaves as
+# none rather than pretending to prove anything.
 proof_mode = "transparent"
 
 [energy]

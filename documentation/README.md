@@ -16,7 +16,7 @@ NexusFS is a single-executable, verifiable distributed file system for edge and 
 
 ## Where The Project Actually Is
 
-**Milestones M0 through M6 are complete.** The local filesystem works: files can be
+**Milestones M0 through M7 are complete.** The local filesystem works: files can be
 created, written, listed, read back, renamed and removed through a signed operation log
 applied to CRDT-backed namespace state, and that state survives restart. Operations
 converge to the same result regardless of the order they arrive in.
@@ -27,12 +27,16 @@ accepted, content can be encrypted at rest without breaking that verification, a
 replication decides how much to transfer from the device's power, thermal and link
 situation — deferring content while still tracking the namespace when constrained. And
 operators have real tooling: reclaiming unreachable storage, upgrading across on-disk
-formats, and enrolling peer keys without depending on trust-on-first-use.
+formats, and enrolling peer keys without depending on trust-on-first-use. The state root
+is a Merkle commitment, so any single entry can be proved to someone holding no
+filesystem — `nexusfs prove` emits such a proof and `nexusfs check-proof` verifies one
+without opening a repository.
 
 **Still unimplemented:** the POSIX/FUSE facade, per-recipient key envelopes (replicas
-share one repository key), metered-link detection, and ZK proofs. `zk_commit` and
-`zk_full` are accepted as config values and behave as `none` rather than pretending to
-prove anything.
+share one repository key), metered-link detection, and zero-knowledge proving. The
+commitment layer is deliberately not zero-knowledge: a verifier learns the entry being
+proved, just not the rest of the tree. `zk_full` is accepted as a config value and
+behaves as `none` rather than pretending to prove anything.
 
 Read [Current Status](./current-status.md) for the precise breakdown before relying on
 anything here.

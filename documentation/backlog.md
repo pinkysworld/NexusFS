@@ -15,10 +15,11 @@ It is intentionally biased toward execution order, not just feature categories.
 
 ## Recently Completed
 
-Milestones M0 through M6 are done: the local state machine, the S3 facade, QUIC
+Milestones M0 through M7 are done: the local state machine, the S3 facade, QUIC
 replication with verified remote apply, encryption at rest with transparent proofs,
-energy-aware replication scheduling, and operator tooling — collection, format
-versioning and explicit peer enrolment. See `./current-status.md`.
+energy-aware replication scheduling, operator tooling — collection, format versioning and
+explicit peer enrolment — and a Merkle state commitment with checkable inclusion proofs.
+See `./current-status.md`.
 
 ## Now
 
@@ -30,6 +31,13 @@ versioning and explicit peer enrolment. See `./current-status.md`.
   a file needs; reading it should pull them rather than failing until the next pass.
 - Read storage headroom, which `Telemetry` carries but nothing populates.
 - Consider surfacing the budget in the CLI (`status`), not only over the admin API.
+
+### Proof Follow-Ups
+
+- Absence proofs: prove the two entries bracketing a gap, so a deletion is provable.
+- Batch inclusion proofs for a whole directory rather than one entry at a time.
+- A proving system, if and when the commitment moves to a circuit-friendly hash. This is
+  research, not engineering, and should stay behind its own milestone.
 
 ### Encryption Follow-Ups
 
@@ -108,7 +116,8 @@ versioning and explicit peer enrolment. See `./current-status.md`.
 The most effective execution order right now is:
 
 1. Close the energy follow-ups, chiefly on-demand fetch of deferred content.
-2. Start ZK-specific work (M7), feature-gated, falling back to transparent proofs.
+2. Performance: incremental snapshots and batched storage writes, which are now the
+   clearest wins and are what the commitment layer made more expensive.
 3. Implement the POSIX/FUSE facade.
 
 ## Definition Of “Ready To Leave Backlog”

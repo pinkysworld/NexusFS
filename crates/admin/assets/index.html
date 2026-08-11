@@ -514,6 +514,7 @@
             <h2>File</h2>
             <span class="spacer"></span>
             <span id="viewerMeta" class="pill neutral">—</span>
+            <button class="ghost" id="viewerProve" title="Prove this entry is in the state root">prove</button>
             <button class="ghost" id="viewerClose">close</button>
           </div>
           <div class="card-body">
@@ -523,6 +524,45 @@
           <div class="card-note" id="viewerNote" hidden></div>
         </div>
       </section>
+
+      <div class="card" id="proofCard" hidden>
+        <div class="card-head">
+          <h2>Inclusion proof</h2>
+          <span class="spacer"></span>
+          <span id="proofPill" class="pill neutral">—</span>
+          <button class="ghost" id="proofClose">close</button>
+        </div>
+        <div class="card-body stack">
+          <dl class="kv" style="grid-template-columns: auto 1fr;">
+            <dt>Entry</dt>
+            <dd class="hash-row"><span class="hash" id="proofInode">—</span></dd>
+            <dt>Object</dt>
+            <dd class="hash-row"><span class="hash" id="proofValue">—</span></dd>
+            <dt>State root</dt>
+            <dd class="hash-row"><span class="hash" id="proofRoot">—</span>
+              <button class="ghost" data-copy="proofRoot">copy</button></dd>
+            <dt>Path length</dt>
+            <dd id="proofSteps">—</dd>
+          </dl>
+          <div>
+            <div class="dim" style="margin-bottom:6px;">
+              Save this and check it anywhere — it needs no repository:
+            </div>
+            <pre class="viewer" id="proofJson" style="max-height: 200px;"></pre>
+            <div class="row-controls" style="margin-top:8px;">
+              <button class="ghost" data-copy="proofJson">copy proof</button>
+              <span class="hash" id="proofCmd">nexusfs check-proof proof.json --root &lt;root&gt;</span>
+            </div>
+          </div>
+        </div>
+        <div class="card-note">
+          A commitment, not zero-knowledge: whoever holds this learns the entry and its
+          object hash, just not the rest of the tree. Checking it against the root
+          recorded inside it only shows internal consistency — supply a root you obtained
+          independently.
+        </div>
+      </div>
+    </section>
 
       <!-- ===================================================== replication ==== -->
       <section class="panel stack" id="panel-replication" hidden>

@@ -223,6 +223,28 @@
 
   function closeViewer() {
     $("viewerCard").hidden = true;
+    $("proofCard").hidden = true;
+  }
+
+  /// Fetch a self-contained inclusion proof for whatever the viewer is showing.
+  async function proveCurrent() {
+    const path = $("viewerPath").textContent;
+    if (!path) return;
+
+    const data = await getJson(`/api/fs/proof?path=${encodeURIComponent(path)}`);
+    $("proofCard").hidden = false;
+    const plural = data.steps === 1 ? "" : "s";
+    setPill("proofPill", `${data.steps} step${plural}`, "ok");
+    setText("proofInode", data.inode);
+    setText("proofValue", data.value);
+    setText("proofRoot", data.state_root);
+    setText("proofSteps", `${data.steps} sibling hash${plural === "s" ? "es" : ""}`);
+    setText("proofJson", JSON.stringify(data.proof, null, 1));
+    setText(
+      "proofCmd",
+      `nexusfs check-proof proof.json --root ${data.state_root}`
+    );
+    $("proofCard").scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 
   // -------------------------------------------------------------- replication --
@@ -619,6 +641,10 @@
     $("filter").addEventListener("input", paintListing);
     $("pendingOnly").addEventListener("change", paintOps);
     $("viewerClose").onclick = closeViewer;
+    $("viewerProve").onclick = () => proveCurrent().catch(fail);
+    $("proofClose").onclick = () => {
+      $("proofCard").hidden = true;
+    };
     $("auditBtn").onclick = runAudit;
     $("gcBtn").onclick = runSurvey;
 
