@@ -322,7 +322,9 @@ the record to the operation boundary, which made applying an operation 6.8-9.5x 
 - Incremental snapshots. The state-root walk is now the visible cost of an apply —
   3.6ms at 1000 entries, roughly 40% — and it grows with the tree. Making it incremental
   needs parent pointers and a persisted inode map.
-- The POSIX/FUSE facade, which is the only unbuilt item from M2.
+- A mountable interface. POSIX/FUSE is *not* outstanding work: M2's goal was one
+  user-facing facade and named POSIX and S3 as alternatives, and the S3 one shipped.
+  Anything here is new scope, not a debt.
 - A proving system, which stays behind its own milestone for the reasons in M7.
 
 Exit criteria:

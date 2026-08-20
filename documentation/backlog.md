@@ -112,8 +112,9 @@ remaining research tracks are named in `./roadmap.md` rather than left implied. 
 
 The most effective execution order right now is:
 
-1. Implement the POSIX/FUSE facade, the only unbuilt item from M2. Needs macFUSE (or
-   libfuse) present to test at all, so confirm that before starting.
+1. A mountable interface, if one is wanted. See the note in `./current-status.md`:
+   POSIX/FUSE is not owed — M2 asked for *one* facade and the S3 one shipped — and
+   WebDAV reaches the same user-visible outcome without a kernel extension.
 2. An incremental Merkle tree, so a one-entry change costs O(log n) rather than a
    rebuild. Structural, but an apply is fsync-bound today, so measure before starting.
 3. Detect metered links per platform, so that scheduler rule can fire in the field.

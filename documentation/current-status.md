@@ -491,20 +491,36 @@ Correctness is pinned by an invariant suite that re-derives the map with a full 
 after every kind of operation and demands equality, since a wrong entry is not a stale
 cache but two replicas disagreeing about what the filesystem is.
 
-## Recommended Next Step (updated)
+## Where To Pick This Up
 
-The POSIX/FUSE facade, the only unbuilt item from M2. Worth knowing before starting: it
-cannot be tested on a machine without macFUSE installed, so it would ship unverified
-unless the kernel extension is present.
+Nothing is outstanding. What follows is new scope, and the two candidates are worth
+weighing rather than picking by order.
 
-After that, an incremental Merkle tree. The map is maintained rather than walked now, but
+**A mountable interface — if one is wanted.** Note first that POSIX/FUSE is not a debt:
+M2 asked for *one* user-facing facade, named POSIX and S3 as alternatives, and the S3 one
+shipped. What a mount buys is that unmodified programs — an editor, `git`, `rsync`,
+Finder — can use the filesystem, which is the difference between an object store you
+script against and a folder you use.
+
+Two things to settle before writing any of it:
+
+- *Write granularity.* An applied operation costs about 6ms including its fsync. POSIX
+  writes arrive in small pieces, so mapping one `write()` to one operation makes copying
+  a 10MB file roughly 2,500 operations — and partial writes take the splice path, which
+  reads the whole file back each time, so the cost is quadratic rather than linear. The
+  fix is ordinary — buffer per file handle, emit one operation on release or fsync — but
+  it is design work, not binding work, and it belongs first.
+- *Which interface.* FUSE needs a kernel extension. WebDAV does not, mounts natively in
+  Finder, Explorer and GIO, reuses the existing HTTP stack and path model, and unlike
+  FUSE is testable in CI. It does not give true POSIX semantics — but neither does a
+  mount too slow to use.
+
+**An incremental Merkle tree.** The map is maintained rather than walked now, but
 the commitment over it is still rebuilt per apply — linear in the filesystem for a change
 that touched one entry. Weigh it against the fact that an apply is currently fsync-bound,
-so the end-to-end gain would be small. A node running metadata-only already knows a file exists and which chunks it needs;
-today a read of that file fails until the next unconstrained sync pass happens to bring
-the bytes. Pulling the missing chunks when someone actually opens the file is what turns
-"deferred" from a gap into a policy, and it reuses the blob phase of the existing
-session protocol rather than needing new wire format.
+so the end-to-end gain would be small.
 
-After that, M7 is the first commitment-oriented proof. It should stay feature-gated and
-fall back to transparent proofs, so the practical baseline never depends on it.
+**Also open, smaller.** Metered-link detection, so the scheduler's link rule can fire in
+the field rather than only in tests. Per-recipient key envelopes, so replicas need not
+share one repository key. Compressed proof batches, where overlapping paths share their
+upper steps.
