@@ -130,13 +130,19 @@ pub fn commit(entries: &[(u128, Hash)]) -> Hash {
 /// One level of the tree, promoting a lone trailing node rather than doubling it.
 fn fold(level: &[Hash]) -> Vec<Hash> {
     let mut next = Vec::with_capacity(level.len().div_ceil(2));
-    let mut pairs = level.chunks_exact(2);
-    for pair in pairs.by_ref() {
-        next.push(node_hash(&pair[0], &pair[1]));
+
+    let mut i = 0;
+    while i + 1 < level.len() {
+        next.push(node_hash(&level[i], &level[i + 1]));
+        i += 2;
     }
-    if let [odd] = pairs.remainder() {
-        next.push(*odd);
+    // A lone trailing node is carried up unchanged. Hashing it with a copy of itself
+    // would let two different leaf sets share a root, which is the classic Merkle
+    // malleability bug.
+    if i < level.len() {
+        next.push(level[i]);
     }
+
     next
 }
 
@@ -228,6 +234,58 @@ mod tests {
     fn the_empty_map_has_its_own_root() {
         assert_eq!(commit(&[]), empty_root());
         assert_ne!(empty_root(), [0u8; 32]);
+    }
+
+    /// The root for a fixed map, pinned as a literal.
+    ///
+    /// Every other test here checks the tree against *itself* — that proofs verify, that
+    /// changes propagate, that malleability is refused. All of those keep passing if the
+    /// hashing changes, as long as it changes consistently. But this value is on disk and
+    /// on the wire: it is what two replicas compare and what a proof is checked against,
+    /// so a refactor that quietly moves it would break every existing repository while
+    /// the suite stayed green.
+    ///
+    /// If this test fails, the on-disk format changed. That needs a version bump, not a
+    /// new constant.
+    #[test]
+    fn the_commitment_is_pinned_to_known_values() {
+        let cases: [(u128, &str); 6] = [
+            (
+                0,
+                "6013fb03c7645b02a3ed2e0dab71f02d34fa85a3e9478c1c7d9b96626b6935e6",
+            ),
+            (
+                1,
+                "0f8135f428ecc2c196de66d137b1affff48790dcedae996a3e802b06ef5ba0e5",
+            ),
+            (
+                2,
+                "8734121094e931d3540bc4305fdb8ae7499849df7997bc64e1f734b0c5ab00ec",
+            ),
+            // Odd sizes exercise the promotion path, which is where the layout is most
+            // easily changed by accident.
+            (
+                3,
+                "6836d21102b9f66de0e737e784965964a6b985d7cb0e71881dec216045b820dc",
+            ),
+            (
+                5,
+                "7cc7a2faffbbe7963c497655c616160150b28de669f7ba5c34be3bad0aef69aa",
+            ),
+            (
+                8,
+                "ebf87a7f76ce8d69dcd45d8f6f3029265858853a820636e5c67de10e0e6bc0e1",
+            ),
+        ];
+
+        for (n, expected) in cases {
+            let map: Vec<(u128, Hash)> = (1..=n).map(|i| (i, [i as u8; 32])).collect();
+            assert_eq!(
+                hex_encode(&commit(&map)),
+                expected,
+                "the commitment for {n} entries moved; this is an on-disk format change"
+            );
+        }
     }
 
     #[test]
