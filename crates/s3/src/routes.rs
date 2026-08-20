@@ -377,6 +377,33 @@ async fn get_object(
     let Some((_, _, mtime)) = st.core.stat_file(&path).map_err(|e| internal(e, &path))? else {
         return Err(no_such_key(&path));
     };
+
+    // The object may be known but its bytes deferred, on a node whose budget said to
+    // take operations and skip content. Fetch what this read needs — and if it still
+    // cannot be had, return an error rather than an empty object, which is what a parked
+    // write would otherwise produce.
+    let outstanding = match &st.content {
+        Some(fetcher) => nexusfs_core::ensure_content(&st.core, fetcher.as_ref(), &path)
+            .await
+            .map_err(|e| internal(e, &path))?,
+        None => st
+            .core
+            .missing_chunks_for_path(&path)
+            .map_err(|e| internal(e, &path))?,
+    };
+    if !outstanding.is_empty() {
+        return Err(S3Error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "ContentUnavailable",
+            format!(
+                "The object exists but {} chunk(s) of its content are not held by this \
+                 node and could not be fetched.",
+                outstanding.len()
+            ),
+            path,
+        ));
+    }
+
     let body = st
         .core
         .read_file_path(&path)

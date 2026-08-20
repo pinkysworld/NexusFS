@@ -20,6 +20,9 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use quinn::{ClientConfig, Endpoint, ServerConfig};
+
+/// Re-exported so callers holding an endpoint need not depend on quinn directly.
+pub use quinn::Endpoint as QuicEndpoint;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, DistinguishedName, SignatureScheme};

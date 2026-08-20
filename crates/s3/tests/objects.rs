@@ -31,6 +31,8 @@ fn state(token: &str) -> S3State {
         core: Arc::new(core),
         identity: Arc::new(Identity::from_seed([7u8; 32])),
         token: token.to_string(),
+        // No peers in these tests: a missing chunk is genuinely missing.
+        content: None,
     }
 }
 

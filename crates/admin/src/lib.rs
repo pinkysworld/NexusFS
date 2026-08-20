@@ -77,6 +77,9 @@ pub struct AdminState {
     pub peers: Option<Arc<dyn PeerSource>>,
     /// `None` when the daemon is not sampling energy.
     pub energy: Option<Arc<dyn EnergySource>>,
+    /// Where to get content this node deferred. `None` when replication is not running,
+    /// in which case a missing chunk is simply missing.
+    pub content: Option<Arc<dyn nexusfs_core::ContentFetcher>>,
     /// This node's ed25519 public key, so the console can show what to enrol elsewhere.
     ///
     /// Passed in rather than read from an `Identity`, which would make this crate depend

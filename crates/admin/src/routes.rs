@@ -204,6 +204,22 @@ async fn fs_cat(
 ) -> Result<Json<CatResp>, (StatusCode, String)> {
     require_token(&headers, &st.token).map_err(|c| (c, "unauthorized".into()))?;
 
+    // A node running under a metadata-only budget knows this file exists and has none
+    // of its bytes. Ask for exactly what the read needs before deciding it is missing.
+    if let Some(fetcher) = &st.content {
+        let wanted = st
+            .core
+            .missing_chunks_for_path(&q.path)
+            .map_err(server_error)?;
+        if !wanted.is_empty() {
+            // A failed fetch is not fatal here: the read below reports the content as
+            // unavailable, which is the truthful answer either way.
+            if let Err(e) = fetcher.fetch(&wanted).await {
+                tracing::debug!(error = %e, path = %q.path, "on-demand fetch failed");
+            }
+        }
+    }
+
     let bytes = st.core.read_file_path(&q.path).map_err(server_error)?;
     let size = bytes.len() as u64;
     let truncated = bytes.len() > MAX_INLINE_BYTES;

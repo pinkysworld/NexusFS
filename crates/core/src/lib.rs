@@ -3,6 +3,7 @@
 pub mod apply;
 pub mod chunker;
 pub mod codec;
+pub mod fetch;
 pub mod format;
 pub mod gc;
 pub mod hash;
@@ -18,6 +19,7 @@ pub mod state;
 pub use apply::*;
 pub use chunker::*;
 pub use codec::*;
+pub use fetch::*;
 pub use format::*;
 pub use gc::*;
 pub use hash::*;

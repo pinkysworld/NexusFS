@@ -340,6 +340,22 @@ curl -H "x-nexusfs-token: $TOKEN" http://127.0.0.1:7070/api/energy
 
 Set `enabled = false` to remove every limit while keeping the reading visible.
 
+### Reading what was deferred
+
+A node under a metadata-only budget knows a file exists and holds none of its bytes.
+Rather than wait for the next unconstrained pass, a read fetches exactly what it needs
+from a peer and then serves the file.
+
+That matters more than it sounds, because of what the alternative looks like. A deferred
+write is *parked*, not applied, so the inode has no content yet — and a bare read of such
+a file returns **empty**. The facades therefore ask what the read is missing, try to
+fetch it, and return `503` if it still cannot be had. A short file is a wrong answer
+wearing the costume of a right one.
+
+The fetch takes only what that read needs: reading one file does not drag the whole
+deferred backlog across, or the budget would mean nothing. Content is hash-checked on
+arrival exactly as in a sync pass — it is a second door into the same store.
+
 ---
 
 ## S3-compatible API

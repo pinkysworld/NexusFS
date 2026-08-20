@@ -21,7 +21,7 @@ use tracing::{debug, info, warn};
 
 use nexusfs_core::CoreState;
 use nexusfs_crypto::Identity;
-use nexusfs_proto::{BuildInfo, DeviceId, Msg};
+use nexusfs_proto::{BuildInfo, DeviceId, Hash, Msg};
 
 use crate::codec::{recv_msg, send_msg};
 use crate::replication::{
@@ -496,4 +496,100 @@ where
     }
 
     Ok(Some(peer))
+}
+
+/// Ask one peer for specific chunks, and nothing else.
+///
+/// Distinct from a sync pass: no operations are exchanged and no clock summaries move.
+/// This exists for a node that already agreed on *what* the filesystem contains and
+/// deferred the bytes — the reason the energy budget separates the two in the first
+/// place. A read of such a file can go and get exactly what it needs instead of waiting
+/// for the next unconstrained pass.
+///
+/// Returns how many chunks were stored. Content is hash-checked before it is kept, the
+/// same as in a sync pass, so a peer cannot slip in different bytes for a hash we asked
+/// for.
+pub async fn fetch_chunks<S>(stream: &mut S, ctx: &SessionCtx, wanted: &[Hash]) -> Result<usize>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    if wanted.is_empty() {
+        return Ok(0);
+    }
+
+    let mut msg_id = 0u64;
+    let mut next_id = || {
+        msg_id += 1;
+        msg_id
+    };
+
+    let hello = make_hello(
+        &ctx.identity,
+        ctx.device_id,
+        vec!["blobs".into()],
+        ctx.build_info(),
+        nexusfs_core::now_ms(),
+    )?;
+    let nonce = hello_nonce(&hello)?;
+    send_msg(stream, &env(next_id(), None, hello)).await?;
+
+    let ack = recv_msg(stream, MAX_FRAME_LEN).await?;
+    if let Msg::Error { code, message, .. } = &ack.payload {
+        bail!("peer error {code}: {message}");
+    }
+    let peer_info = verify_hello_ack(&ack.payload, &nonce)?;
+    authorize(&ctx.core, ctx.trust, peer_info.device_id, &peer_info.pubkey)?;
+
+    let mut stored = 0usize;
+    let mut outstanding: Vec<Hash> = wanted.to_vec();
+
+    while !outstanding.is_empty() {
+        send_msg(
+            stream,
+            &env(
+                next_id(),
+                None,
+                Msg::WantBlobs {
+                    hashes: outstanding.clone(),
+                    max_bytes: BLOB_BATCH_BYTES,
+                },
+            ),
+        )
+        .await?;
+
+        let reply = recv_msg(stream, MAX_FRAME_LEN).await?;
+        let (blobs, more) = match reply.payload {
+            Msg::BlobsBatch { blobs, more } => (blobs, more),
+            Msg::Error { code, message, .. } => bail!("peer error {code}: {message}"),
+            other => bail!("expected BlobsBatch, got {other:?}"),
+        };
+
+        let before = stored;
+        for (hash, bytes) in blobs {
+            if nexusfs_core::hash_bytes(&bytes) != hash {
+                warn!("peer returned content that does not match the requested hash");
+                continue;
+            }
+            ctx.core.stores.blobs.put(hash, &bytes)?;
+            outstanding.retain(|h| *h != hash);
+            stored += 1;
+        }
+
+        // Same no-progress guard as a sync pass: a peer that keeps promising more while
+        // handing back nothing usable would otherwise loop on an unchanged request.
+        if stored == before {
+            break;
+        }
+        if !more {
+            break;
+        }
+    }
+
+    ctx.core.flush()?;
+    // Content arriving can unblock operations that were parked waiting for it.
+    ctx.core.retry_pending()?;
+
+    send_msg(stream, &env(next_id(), None, Msg::Bye)).await.ok();
+    debug!(stored, wanted = wanted.len(), "on-demand fetch complete");
+    Ok(stored)
 }

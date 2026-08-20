@@ -521,3 +521,154 @@ async fn a_rejected_operation_low_in_the_log_does_not_spin_the_session() {
     // The healthy operations still land; only the poisoned one is dropped.
     assert_eq!(b.listing("/").len(), 299);
 }
+
+// --- fetching content that was deliberately deferred -------------------------
+//
+// The state these exercise is the one the energy scheduler creates on purpose: a node
+// that took every operation and none of the bytes. It knows the file exists and cannot
+// read it, and the question is whether a reader can close that gap on demand instead of
+// waiting for the next unconstrained pass.
+
+/// Fetch exactly `wanted` from `source`, over a fresh connection.
+async fn fetch(
+    puller: &Node,
+    source: &Node,
+    wanted: &[nexusfs_proto::Hash],
+) -> anyhow::Result<usize> {
+    let (mut client, mut server) = tokio::io::duplex(1 << 20);
+    let server_ctx = source.ctx.clone();
+    let responder = tokio::spawn(async move { serve_session(&mut server, &server_ctx).await });
+
+    let got = nexusfs_net::session::fetch_chunks(&mut client, &puller.ctx, wanted).await;
+    drop(client);
+    let _ = responder.await;
+    got
+}
+
+#[tokio::test]
+async fn a_deferred_file_can_be_fetched_when_someone_reads_it() {
+    let a = node(1, 1, true);
+    let b = node(2, 2, true);
+    a.write("/notes/deferred.txt", "content that was never transferred");
+
+    // Take the namespace, skip the bytes — exactly what a metadata-only budget does.
+    let outcome = pull_with(&b, &a, SyncLimits::metadata_only())
+        .await
+        .unwrap();
+    assert!(outcome.content_deferred);
+    assert_eq!(b.listing("/notes"), vec!["deferred.txt".to_string()]);
+
+    // The file is known and unreadable, and the node can say precisely what it lacks.
+    let wanted = b
+        .ctx
+        .core
+        .missing_chunks_for_path("/notes/deferred.txt")
+        .unwrap();
+    assert!(
+        !wanted.is_empty(),
+        "the read should have something to ask for"
+    );
+    // Note what a bare read gives you before the fetch: an *empty* file, because the
+    // write is parked rather than applied. That is precisely why the facades consult
+    // `missing_chunks_for_path` and refuse rather than serving this.
+    assert_eq!(
+        b.ctx.core.read_file_path("/notes/deferred.txt").unwrap(),
+        b""
+    );
+
+    // Ask for exactly that, and the read succeeds.
+    let stored = fetch(&b, &a, &wanted).await.unwrap();
+    assert_eq!(stored, wanted.len());
+    assert_eq!(
+        b.read("/notes/deferred.txt"),
+        "content that was never transferred"
+    );
+    assert!(b
+        .ctx
+        .core
+        .missing_chunks_for_path("/notes/deferred.txt")
+        .unwrap()
+        .is_empty());
+}
+
+#[tokio::test]
+async fn fetching_takes_only_what_was_asked_for() {
+    // An on-demand fetch is not a sync in disguise: reading one file must not drag the
+    // whole backlog across, or the budget the scheduler set means nothing.
+    let a = node(1, 1, true);
+    let b = node(2, 2, true);
+    a.write("/wanted.txt", "the file being read");
+    a.write("/unwanted.bin", &"x".repeat(50_000));
+
+    pull_with(&b, &a, SyncLimits::metadata_only())
+        .await
+        .unwrap();
+
+    let wanted = b.ctx.core.missing_chunks_for_path("/wanted.txt").unwrap();
+    fetch(&b, &a, &wanted).await.unwrap();
+
+    assert_eq!(b.read("/wanted.txt"), "the file being read");
+    assert!(
+        !b.ctx
+            .core
+            .missing_chunks_for_path("/unwanted.bin")
+            .unwrap()
+            .is_empty(),
+        "the untouched file's content should still be deferred"
+    );
+}
+
+#[tokio::test]
+async fn a_peer_that_does_not_have_the_content_is_not_an_error() {
+    // The caller reports the content as unavailable rather than pretending the file is
+    // short — and a fetch that finds nothing must simply return, not hang or fail.
+    let a = node(1, 1, true);
+    let b = node(2, 2, true);
+    a.write("/f.txt", "content");
+
+    pull_with(&b, &a, SyncLimits::metadata_only())
+        .await
+        .unwrap();
+    let wanted = b.ctx.core.missing_chunks_for_path("/f.txt").unwrap();
+
+    // A third node that holds nothing at all.
+    let empty = node(3, 3, true);
+    let stored = fetch(&b, &empty, &wanted).await.unwrap();
+    assert_eq!(stored, 0);
+    assert!(
+        !b.ctx
+            .core
+            .missing_chunks_for_path("/f.txt")
+            .unwrap()
+            .is_empty(),
+        "the content is still outstanding, and a caller must be able to see that"
+    );
+}
+
+#[tokio::test]
+async fn content_that_does_not_match_its_hash_is_refused_on_demand_too() {
+    // The on-demand path must verify exactly as a sync pass does; it is a second door
+    // into the same store.
+    let a = node(1, 1, true);
+    let b = node(2, 2, true);
+    a.write("/f.txt", "genuine content");
+
+    pull_with(&b, &a, SyncLimits::metadata_only())
+        .await
+        .unwrap();
+    let wanted = b.ctx.core.missing_chunks_for_path("/f.txt").unwrap();
+
+    // Corrupt the source's copy in place, so it serves bytes that do not match.
+    for hash in &wanted {
+        a.ctx.core.stores.blobs.put(*hash, b"tampered").unwrap();
+    }
+
+    let stored = fetch(&b, &a, &wanted).await.unwrap();
+    assert_eq!(stored, 0, "mismatched content must be discarded");
+    assert!(!b
+        .ctx
+        .core
+        .missing_chunks_for_path("/f.txt")
+        .unwrap()
+        .is_empty());
+}

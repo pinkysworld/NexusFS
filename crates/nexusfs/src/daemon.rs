@@ -136,6 +136,36 @@ impl nexusfs_admin::EnergySource for EnergyGate {
     }
 }
 
+/// Fetches deferred content from peers on behalf of a read.
+///
+/// The counterpart to the energy scheduler's decision to take operations and skip
+/// bytes. Without this, a node under a metadata-only budget knows a file exists and
+/// cannot serve it until the next unconstrained pass — which turns a deliberate policy
+/// into an outage from the reader's point of view.
+#[cfg(all(feature = "quic", any(feature = "admin", feature = "s3")))]
+struct PeerContentFetcher {
+    endpoint: nexusfs_net::quic::QuicEndpoint,
+    peers: Vec<String>,
+    ctx: nexusfs_net::session::SessionCtx,
+}
+
+#[cfg(all(feature = "quic", any(feature = "admin", feature = "s3")))]
+impl nexusfs_core::ContentFetcher for PeerContentFetcher {
+    fn fetch<'a>(&'a self, hashes: &'a [nexusfs_proto::Hash]) -> nexusfs_core::FetchFuture<'a> {
+        Box::pin(async move {
+            Ok(
+                nexusfs_net::peers::fetch_from_peers(
+                    &self.endpoint,
+                    &self.peers,
+                    &self.ctx,
+                    hashes,
+                )
+                .await,
+            )
+        })
+    }
+}
+
 /// Bridges the replication registry to the admin API without either crate depending
 /// on the other.
 #[cfg(all(feature = "admin", feature = "quic"))]
@@ -224,61 +254,11 @@ pub async fn run_daemon(config_path: PathBuf) -> Result<()> {
         info!("energy-aware scheduling is disabled; replication will run unthrottled");
     }
 
-    // Start admin server.
-    #[cfg(feature = "admin")]
-    {
-        let addr = cfg.admin_addr()?;
-
-        #[cfg(feature = "quic")]
-        let peers: Option<Arc<dyn nexusfs_admin::PeerSource>> =
-            Some(Arc::new(PeerBridge(peer_registry.clone())));
-        #[cfg(not(feature = "quic"))]
-        let peers: Option<Arc<dyn nexusfs_admin::PeerSource>> = None;
-
-        let st = nexusfs_admin::AdminState {
-            core: Arc::new(core.clone()),
-            token: admin_token.clone(),
-            peers,
-            energy: Some(energy_gate.clone() as Arc<dyn nexusfs_admin::EnergySource>),
-            node_pubkey: Some(identity.pubkey_bytes()),
-        };
-        tokio::spawn(async move {
-            if let Err(e) = nexusfs_admin::serve(addr, st).await {
-                eprintln!("admin server error: {e:?}");
-            }
-        });
-    }
-    #[cfg(not(feature = "admin"))]
-    {
-        tracing::warn!("admin feature disabled; no admin server will run");
-    }
-
-    // Start S3 server if enabled and feature is present.
-    #[cfg(feature = "s3")]
-    if cfg.s3.enabled {
-        let addr = cfg.s3_addr()?;
-        let st = nexusfs_s3::S3State {
-            core: Arc::new(core.clone()),
-            // Object writes are signed by this node, exactly like CLI writes.
-            identity: Arc::new(identity.clone()),
-            token: cfg.s3.token.clone(),
-        };
-        if st.token.is_empty() {
-            tracing::warn!(
-                "s3 facade has no token configured; anyone who can reach {addr} can read \
-                 and write objects"
-            );
-        }
-        tokio::spawn(async move {
-            if let Err(e) = nexusfs_s3::serve(addr, st).await {
-                eprintln!("s3 server error: {e:?}");
-            }
-        });
-    }
-
-    // Start replication: serve inbound sessions, and pull from configured peers.
+    // Replication starts before the facades, because they borrow its transport to
+    // fetch content this node deferred. Starting them first would mean either a second
+    // endpoint or a read path that cannot reach a peer.
     #[cfg(feature = "quic")]
-    {
+    let content_fetcher: Option<Arc<dyn nexusfs_core::ContentFetcher>> = {
         let listen = cfg.net_addr()?;
         let ctx = nexusfs_net::session::SessionCtx {
             core: core.clone(),
@@ -302,16 +282,81 @@ pub async fn run_daemon(config_path: PathBuf) -> Result<()> {
                     ctx.clone(),
                 ));
                 tokio::spawn(nexusfs_net::peers::sync_loop(
-                    endpoint,
+                    endpoint.clone(),
                     cfg.net.peers.clone(),
-                    ctx,
+                    ctx.clone(),
                     std::time::Duration::from_secs(cfg.net.sync_interval_secs.max(1)),
                     peer_registry.clone(),
                     Some(energy_gate.clone() as Arc<dyn nexusfs_net::session::SyncGate>),
                 ));
+
+                Some(Arc::new(PeerContentFetcher {
+                    endpoint,
+                    peers: cfg.net.peers.clone(),
+                    ctx,
+                }) as Arc<dyn nexusfs_core::ContentFetcher>)
             }
-            Err(e) => tracing::error!(error = %format!("{e:#}"), "replication failed to start"),
+            Err(e) => {
+                tracing::error!(error = %format!("{e:#}"), "replication failed to start");
+                None
+            }
         }
+    };
+    #[cfg(not(feature = "quic"))]
+    let content_fetcher: Option<Arc<dyn nexusfs_core::ContentFetcher>> = None;
+
+    // Start admin server.
+    #[cfg(feature = "admin")]
+    {
+        let addr = cfg.admin_addr()?;
+
+        #[cfg(feature = "quic")]
+        let peers: Option<Arc<dyn nexusfs_admin::PeerSource>> =
+            Some(Arc::new(PeerBridge(peer_registry.clone())));
+        #[cfg(not(feature = "quic"))]
+        let peers: Option<Arc<dyn nexusfs_admin::PeerSource>> = None;
+
+        let st = nexusfs_admin::AdminState {
+            core: Arc::new(core.clone()),
+            token: admin_token.clone(),
+            peers,
+            energy: Some(energy_gate.clone() as Arc<dyn nexusfs_admin::EnergySource>),
+            content: content_fetcher.clone(),
+            node_pubkey: Some(identity.pubkey_bytes()),
+        };
+        tokio::spawn(async move {
+            if let Err(e) = nexusfs_admin::serve(addr, st).await {
+                eprintln!("admin server error: {e:?}");
+            }
+        });
+    }
+    #[cfg(not(feature = "admin"))]
+    {
+        tracing::warn!("admin feature disabled; no admin server will run");
+    }
+
+    // Start S3 server if enabled and feature is present.
+    #[cfg(feature = "s3")]
+    if cfg.s3.enabled {
+        let addr = cfg.s3_addr()?;
+        let st = nexusfs_s3::S3State {
+            core: Arc::new(core.clone()),
+            // Object writes are signed by this node, exactly like CLI writes.
+            identity: Arc::new(identity.clone()),
+            token: cfg.s3.token.clone(),
+            content: content_fetcher.clone(),
+        };
+        if st.token.is_empty() {
+            tracing::warn!(
+                "s3 facade has no token configured; anyone who can reach {addr} can read \
+                 and write objects"
+            );
+        }
+        tokio::spawn(async move {
+            if let Err(e) = nexusfs_s3::serve(addr, st).await {
+                eprintln!("s3 server error: {e:?}");
+            }
+        });
     }
 
     // Identity signs operations for the S3 facade and the replication handshake; with

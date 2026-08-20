@@ -12,7 +12,7 @@ use tracing::{debug, info, warn};
 
 use crate::quic;
 use crate::session::{
-    pull_from_peer, serve_session, SessionCtx, SyncGate, SyncLimits, SyncOutcome,
+    fetch_chunks, pull_from_peer, serve_session, SessionCtx, SyncGate, SyncLimits, SyncOutcome,
 };
 
 /// How a configured peer is doing, for the admin surface.
@@ -129,6 +129,61 @@ pub async fn sync_once(
 
     connection.close(0u32.into(), b"done");
     outcome
+}
+
+/// Bound on an on-demand fetch, which sits in front of a waiting reader.
+///
+/// Much tighter than a sync pass: nobody is watching a background sync, but somebody is
+/// waiting on this one. Failing fast and reporting the content as unavailable beats
+/// holding a request open for minutes.
+const FETCH_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// Fetch specific chunks from whichever configured peer has them.
+///
+/// Tries peers in order and stops as soon as everything asked for has arrived. A peer
+/// that is unreachable or simply does not hold the content is not an error — the next
+/// one may, and if none do, the caller reports the content as unavailable rather than
+/// pretending the file is short.
+pub async fn fetch_from_peers(
+    endpoint: &Endpoint,
+    peers: &[String],
+    ctx: &SessionCtx,
+    wanted: &[nexusfs_proto::Hash],
+) -> usize {
+    let mut stored = 0usize;
+
+    for peer in peers {
+        let outstanding = match ctx.core.missing_chunk_subset(wanted) {
+            Ok(rest) if rest.is_empty() => break,
+            Ok(rest) => rest,
+            Err(e) => {
+                warn!(error = %e, "could not determine what is still missing");
+                break;
+            }
+        };
+
+        let Ok(addr) = peer.parse::<SocketAddr>() else {
+            continue;
+        };
+
+        let attempt = tokio::time::timeout(FETCH_TIMEOUT, async {
+            let connection = quic::connect(endpoint, addr).await?;
+            let (send, recv) = connection.open_bi().await.context("open fetch stream")?;
+            let mut stream = join(recv, send);
+            let got = fetch_chunks(&mut stream, ctx, &outstanding).await;
+            connection.close(0u32.into(), b"done");
+            got
+        })
+        .await;
+
+        match attempt {
+            Ok(Ok(got)) => stored += got,
+            Ok(Err(e)) => debug!(peer = %peer, error = %e, "on-demand fetch from peer failed"),
+            Err(_) => debug!(peer = %peer, "on-demand fetch timed out"),
+        }
+    }
+
+    stored
 }
 
 /// How long one peer gets before the loop moves on.

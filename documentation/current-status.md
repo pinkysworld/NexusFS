@@ -294,6 +294,34 @@ therefore came with on-disk format v2 and PROTOCOL_VERSION 2, so a stale store i
 refused until migrated and a mismatched peer refuses the handshake rather than syncing
 and then disagreeing forever.
 
+### Reading Deferred Content
+
+The energy scheduler can decide to take operations and skip the bytes. That leaves a node
+that knows a file exists, where it lives and what it is made of — and cannot read it.
+
+A read now closes that gap itself. The facade asks `core` what the read is missing, hands
+that list to whatever transport the daemon has, and reads once it arrives. `core` never
+learns about peers: it answers the question, the daemon answers the network.
+
+Three things can be missing and all of them count. Chunks a *pending* write is waiting on
+— the usual case, because under a metadata-only budget the write never applied. The
+`FileNode` object itself, which is a stored object like any other and so is skipped along
+with the content; the inode records its hash, so it can still be asked for by name. And
+the chunks that object names. Because the second must arrive before the third can be
+named, fetching runs in rounds, bounded so that a round which learns nothing new stops
+rather than repeating itself.
+
+The honesty problem this exposed is worth stating plainly: a parked write means the inode
+has no content, so a bare read of a deferred file returns *empty*. The facades therefore
+refuse — `503` from both the admin API and the S3 facade — rather than serving a short
+file, which is a wrong answer that looks like a right one.
+
+A fetch takes only what the read needs. Reading one file does not pull the whole deferred
+backlog across, or the budget the scheduler set would mean nothing. Content is
+hash-checked on arrival exactly as in a sync pass, and the same no-progress guard
+applies: a peer that keeps promising more while handing back nothing usable ends the
+exchange rather than looping.
+
 ### Absence Proofs And Batching
 
 Absence needs a different construction from inclusion, because a path that resolves to
@@ -342,7 +370,7 @@ daemon uses between real nodes.
 
 ### Test Coverage
 
-161 tests, including order-independent convergence (the same operation set applied in
+165 tests, including order-independent convergence (the same operation set applied in
 different orders yields an identical state root), idempotent re-apply, pending-op drain,
 concurrent-create conflict naming, concurrent-write resolution, rename-vs-unlink,
 subtree-cycle refusal, restart persistence, S3 key mapping and pagination, and
@@ -465,14 +493,14 @@ cache but two replicas disagreeing about what the filesystem is.
 
 ## Recommended Next Step (updated)
 
-An incremental Merkle tree. The map is now maintained rather than walked, but the
-commitment over it is still rebuilt per apply — linear in the filesystem for a change
-that touched one entry. Updating a single leaf in O(log n) is the remaining structural
-win.
+The POSIX/FUSE facade, the only unbuilt item from M2. Worth knowing before starting: it
+cannot be tested on a machine without macFUSE installed, so it would ship unverified
+unless the kernel extension is present.
 
-Worth weighing against it: an apply is currently fsync-bound, so the end-to-end gain
-would be small until something else changes. Closing the loop the energy scheduler
-opened — fetching deferred content on demand at read time — buys more for users today. A node running metadata-only already knows a file exists and which chunks it needs;
+After that, an incremental Merkle tree. The map is maintained rather than walked now, but
+the commitment over it is still rebuilt per apply — linear in the filesystem for a change
+that touched one entry. Weigh it against the fact that an apply is currently fsync-bound,
+so the end-to-end gain would be small. A node running metadata-only already knows a file exists and which chunks it needs;
 today a read of that file fails until the next unconstrained sync pass happens to bring
 the bytes. Pulling the missing chunks when someone actually opens the file is what turns
 "deferred" from a gap into a policy, and it reuses the blob phase of the existing

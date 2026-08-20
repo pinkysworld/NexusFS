@@ -741,3 +741,19 @@ impl CoreState {
         self.device_id
     }
 }
+
+impl CoreState {
+    /// Which of `hashes` this node still lacks.
+    ///
+    /// Used between attempts when fetching from several peers, so a second peer is only
+    /// asked for what the first did not supply.
+    pub fn missing_chunk_subset(&self, hashes: &[Hash]) -> Result<Vec<Hash>> {
+        let mut out = Vec::new();
+        for hash in hashes {
+            if !self.stores.blobs.has(hash)? {
+                out.push(*hash);
+            }
+        }
+        Ok(out)
+    }
+}

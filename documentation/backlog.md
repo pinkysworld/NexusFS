@@ -29,8 +29,6 @@ remaining research tracks are named in `./roadmap.md` rather than left implied. 
 
 - Detect metered links per platform. The scheduler already treats a metered link as an
   override, but nothing ever reports one, so that rule cannot fire in the field.
-- Fetch deferred content on demand at read time. A metadata-only node knows which chunks
-  a file needs; reading it should pull them rather than failing until the next pass.
 - Read storage headroom, which `Telemetry` carries but nothing populates.
 - Consider surfacing the budget in the CLI (`status`), not only over the admin API.
 
@@ -114,11 +112,11 @@ remaining research tracks are named in `./roadmap.md` rather than left implied. 
 
 The most effective execution order right now is:
 
-1. Close the energy follow-ups, chiefly on-demand fetch of deferred content — the
-   largest user-visible gap now that the map is maintained.
-2. Implement the POSIX/FUSE facade, the only unbuilt item from M2.
-3. An incremental Merkle tree, so a one-entry change costs O(log n) rather than a
+1. Implement the POSIX/FUSE facade, the only unbuilt item from M2. Needs macFUSE (or
+   libfuse) present to test at all, so confirm that before starting.
+2. An incremental Merkle tree, so a one-entry change costs O(log n) rather than a
    rebuild. Structural, but an apply is fsync-bound today, so measure before starting.
+3. Detect metered links per platform, so that scheduler rule can fire in the field.
 
 ## Definition Of “Ready To Leave Backlog”
 

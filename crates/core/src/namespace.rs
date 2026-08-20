@@ -434,3 +434,77 @@ impl CoreState {
 fn hex(h: &Hash) -> String {
     h.iter().map(|b| format!("{b:02x}")).collect()
 }
+
+impl CoreState {
+    /// Content a read of `path` would need but this node does not hold.
+    ///
+    /// Empty means the read will return the whole file. Non-empty is the normal state of
+    /// a node that took operations while its replication budget said to defer the bytes.
+    ///
+    /// Three things can be missing, and all of them count:
+    ///
+    /// 1. Chunks a *pending* write for this inode is waiting on. This is the usual case
+    ///    under a metadata-only budget: the write never applied, so the inode still has
+    ///    no content and the file would otherwise read as empty.
+    /// 2. The `FileNode` object itself, which is a stored object like any other and so
+    ///    is skipped along with the content. Without it the chunk list is unknown, but
+    ///    the inode records its hash, so it can still be asked for by name.
+    /// 3. The chunks that node names.
+    ///
+    /// Returned rather than fetched here because fetching is a network act, and `core`
+    /// has no business knowing about peers. The caller that *does* — a facade serving a
+    /// read — pairs this with a fetch and then reads.
+    pub fn missing_chunks_for_path(&self, path: &str) -> Result<Vec<Hash>> {
+        let Some((inode, kind)) = self.resolve_path(path)? else {
+            return Ok(Vec::new());
+        };
+        if kind != EntryType::File {
+            return Ok(Vec::new());
+        }
+
+        let mut wanted = Vec::new();
+
+        // A parked write for this inode: its content is what would make the file whole.
+        for op in self.pending_ops()? {
+            if let nexusfs_proto::FsOpKind::Write {
+                inode: target,
+                chunks,
+                ..
+            } = &op.kind
+            {
+                if *target == inode {
+                    for chunk in chunks {
+                        if !self.stores.blobs.has(&chunk.hash)? {
+                            wanted.push(chunk.hash);
+                        }
+                    }
+                }
+            }
+        }
+
+        let Some(rec) = self.load_inode(inode)? else {
+            return Ok(wanted);
+        };
+        let Some(node_hash) = rec.content.value.node_hash else {
+            return Ok(wanted);
+        };
+
+        match self.get_object(&node_hash)? {
+            Some(Object::FileNode(file)) => {
+                for chunk in &file.chunks {
+                    if !self.stores.blobs.has(&chunk.hash)? {
+                        wanted.push(chunk.hash);
+                    }
+                }
+            }
+            // The object itself has not arrived. Ask for it by the hash the inode
+            // records; its chunk list becomes askable once it lands.
+            None => wanted.push(node_hash),
+            Some(_) => {}
+        }
+
+        wanted.sort();
+        wanted.dedup();
+        Ok(wanted)
+    }
+}

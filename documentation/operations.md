@@ -66,6 +66,10 @@ lists sync *targets* and how they are doing; the second lists *trusted keys*. A 
 can be trusted without being a target, and a target may not be trusted yet — which is
 exactly the mismatch worth noticing when replication is silently doing nothing.
 
+A read of a file whose content this node deferred will fetch that content from a peer
+first, and answer `503` if it cannot — rather than serving an empty file, which is what a
+parked write would otherwise produce.
+
 `/api/energy` is the one to reach for when replication looks slower than expected: its
 `reason` field names the rule that fired, so "battery 14% is at or below the low
 threshold 20%" distinguishes a deliberate throttle from a broken peer. Peers also report

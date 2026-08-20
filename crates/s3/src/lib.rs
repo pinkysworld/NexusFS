@@ -31,6 +31,8 @@ pub struct S3State {
     pub identity: Arc<Identity>,
     /// Shared secret checked via `x-nexusfs-token`; empty disables the check.
     pub token: String,
+    /// Where to get content this node deferred; `None` when replication is not running.
+    pub content: Option<std::sync::Arc<dyn nexusfs_core::ContentFetcher>>,
 }
 
 pub async fn serve(bind: SocketAddr, st: S3State) -> Result<()> {
