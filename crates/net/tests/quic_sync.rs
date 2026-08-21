@@ -3,7 +3,6 @@
 //! The duplex tests cover protocol logic; this covers the transport actually working —
 //! endpoint setup, ALPN, certificate handling and stream plumbing.
 
-use std::sync::Arc;
 use std::time::Duration;
 
 use nexusfs_core::{now_ms, CoreState, Stores};
@@ -17,13 +16,7 @@ use nexusfs_storage::mem_store::MemStore;
 
 fn ctx(device: u128, seed: u8) -> SessionCtx {
     let store = MemStore::new();
-    let core = CoreState::new(
-        Stores {
-            blobs: Arc::new(store.clone()),
-            kv: Arc::new(store),
-        },
-        DeviceId(device),
-    );
+    let core = CoreState::new(Stores::shared(store), DeviceId(device));
     core.bootstrap_if_needed().unwrap();
 
     SessionCtx {

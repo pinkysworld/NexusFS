@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 
 use std::path::Path;
-use std::sync::Arc;
 
 use nexusfs_core::{CoreState, Stores};
 use nexusfs_crypto::{sign, Identity};
@@ -10,10 +9,7 @@ use nexusfs_storage::sled_store::SledStore;
 
 pub fn open_core(path: &Path, device: u128) -> CoreState {
     let store = SledStore::open(path).unwrap();
-    let stores = Stores {
-        blobs: Arc::new(store.clone()),
-        kv: Arc::new(store),
-    };
+    let stores = Stores::shared(store);
     CoreState::new(stores, DeviceId(device))
 }
 

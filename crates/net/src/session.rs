@@ -309,6 +309,14 @@ where
 
         let before = outcome.blobs_received;
         for (hash, bytes) in blobs {
+            // Content we did not ask for is refused outright. Verifying the hash proves
+            // the bytes match their name, not that we wanted them — without this a peer
+            // can write whatever it likes into our store, and because each unsolicited
+            // blob still counts as progress the no-progress guard never fires.
+            if !wanted.contains(&hash) {
+                warn!("peer returned content that was not requested");
+                continue;
+            }
             // Content addressing is only a guarantee if it is checked. A peer that
             // returns different bytes for a hash we asked for is caught here.
             let actual = nexusfs_core::hash_bytes(&bytes);
@@ -566,6 +574,13 @@ where
 
         let before = stored;
         for (hash, bytes) in blobs {
+            // Asked-for first: a hash that checks out is still not content we wanted,
+            // and counting it as progress would let a peer loop us while filling the
+            // store with whatever it chose to send.
+            if !outstanding.contains(&hash) {
+                warn!("peer returned content that was not requested");
+                continue;
+            }
             if nexusfs_core::hash_bytes(&bytes) != hash {
                 warn!("peer returned content that does not match the requested hash");
                 continue;
@@ -585,9 +600,10 @@ where
         }
     }
 
-    ctx.core.flush()?;
-    // Content arriving can unblock operations that were parked waiting for it.
+    // Content arriving can unblock operations that were parked waiting for it, and the
+    // durability point has to sit after that work rather than before it.
     ctx.core.retry_pending()?;
+    ctx.core.flush()?;
 
     send_msg(stream, &env(next_id(), None, Msg::Bye)).await.ok();
     debug!(stored, wanted = wanted.len(), "on-demand fetch complete");

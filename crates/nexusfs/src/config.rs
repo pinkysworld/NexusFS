@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
 /// Expand a leading `~` or `~/` against `$HOME`. Other paths pass through untouched.
@@ -103,7 +102,8 @@ impl Config {
         expand_home(&self.node.data_dir)
     }
 
-    pub fn admin_addr(&self) -> Result<SocketAddr> {
+    #[cfg(feature = "admin")]
+    pub fn admin_addr(&self) -> Result<std::net::SocketAddr> {
         self.admin
             .bind
             .parse()
@@ -111,13 +111,14 @@ impl Config {
     }
 
     #[cfg(feature = "s3")]
-    pub fn s3_addr(&self) -> Result<SocketAddr> {
+    pub fn s3_addr(&self) -> Result<std::net::SocketAddr> {
         self.s3.bind.parse().context("parse s3.bind socket addr")
     }
 
     /// Listen address for the replication transport.
     #[cfg(feature = "quic")]
-    pub fn net_addr(&self) -> Result<SocketAddr> {
+    #[cfg(feature = "quic")]
+    pub fn net_addr(&self) -> Result<std::net::SocketAddr> {
         self.net
             .listen
             .parse()

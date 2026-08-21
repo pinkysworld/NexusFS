@@ -18,13 +18,7 @@ use nexusfs_storage::mem_store::MemStore;
 
 fn state(token: &str) -> S3State {
     let store = MemStore::new();
-    let core = CoreState::new(
-        Stores {
-            blobs: Arc::new(store.clone()),
-            kv: Arc::new(store),
-        },
-        DeviceId(1),
-    );
+    let core = CoreState::new(Stores::shared(store), DeviceId(1));
     core.bootstrap_if_needed().unwrap();
 
     S3State {

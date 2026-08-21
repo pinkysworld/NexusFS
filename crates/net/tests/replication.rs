@@ -19,13 +19,7 @@ struct Node {
 
 fn node(device: u128, seed: u8, tofu: bool) -> Node {
     let store = MemStore::new();
-    let core = CoreState::new(
-        Stores {
-            blobs: Arc::new(store.clone()),
-            kv: Arc::new(store),
-        },
-        DeviceId(device),
-    );
+    let core = CoreState::new(Stores::shared(store), DeviceId(device));
     core.bootstrap_if_needed().unwrap();
 
     Node {
@@ -307,9 +301,11 @@ fn encrypted_node(device: u128, seed: u8, repo_key: [u8; 32]) -> Node {
     let n = node(device, seed, true);
     Node {
         ctx: nexusfs_net::session::SessionCtx {
-            core: n.ctx.core.clone().with_encryption(std::sync::Arc::new(
-                nexusfs_crypto::RepoCipher::new(repo_key),
-            )),
+            core: n
+                .ctx
+                .core
+                .clone()
+                .with_encryption(Arc::new(nexusfs_crypto::RepoCipher::new(repo_key))),
             ..n.ctx
         },
     }

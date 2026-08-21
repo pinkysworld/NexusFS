@@ -1,7 +1,5 @@
 //! One in-browser NexusFS node.
 
-use std::sync::Arc;
-
 use anyhow::{bail, Result};
 
 use nexusfs_core::{CoreState, Stores};
@@ -24,10 +22,7 @@ pub struct Replica {
 impl Replica {
     pub fn new(name: String, device_id: u128, seed: [u8; 32]) -> Result<Self> {
         let store = MemStore::new();
-        let stores = Stores {
-            blobs: Arc::new(store.clone()),
-            kv: Arc::new(store.clone()),
-        };
+        let stores = Stores::shared(store.clone());
         let mut core = CoreState::new(stores, nexusfs_proto::DeviceId(device_id));
         // Small chunks so the playground shows multi-chunk files without needing
         // megabyte pastes.

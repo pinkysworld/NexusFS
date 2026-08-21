@@ -40,8 +40,15 @@ jobs:
 
       # The binary ships one executable whose surface is feature-gated, so the
       # non-default combinations have to build too or they rot unnoticed.
+      # Every gate individually, too: the cfgs on a type and on its construction
+      # site can drift apart, and only a build of that exact combination notices.
       - name: Build with optional features
-        run: cargo build -p nexusfs --features "admin,quic,s3"
+        run: |
+          cargo build -p nexusfs --features "admin,quic,s3"
+          for f in admin quic s3 "quic,s3" "admin,quic"; do
+            cargo check -p nexusfs --no-default-features --features "$f"
+          done
+          cargo check -p nexusfs --no-default-features
 
   # The playground runs the core in the browser, so a core change that breaks the
   # wasm target would silently break the site. Catch it here; the deploy workflow

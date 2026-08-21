@@ -451,15 +451,15 @@ pub async fn run_check_proof(file: String, root: Option<String>) -> Result<()> {
         Claim::Absent { proof } => nexusfs_zk::merkle::check_absent(proof, &expected)?,
     }
 
-    println!(
-        "subject:    {}",
-        portable
-            .path
-            .clone()
-            .unwrap_or_else(|| format!("inode {}", portable.inode))
-    );
-    println!("inode:      {}", portable.inode);
-    println!("issuer:     {}", portable.issuer);
+    // Print the inode the *proof* commits to, not the one the file's header claims.
+    // Those fields are decoration: nothing signs or binds them, so a file whose header
+    // was edited would otherwise have a genuine proof reported against the wrong
+    // subject — by the one command whose job is to not be fooled.
+    let proven_inode = match &portable.claim {
+        Claim::Present { proof } => proof.inode,
+        Claim::Absent { proof } => proof.inode,
+    };
+    println!("inode:      {proven_inode:x}   (from the proof)");
     println!("state root: {}", hex::encode(expected));
     match &portable.claim {
         Claim::Present { proof } => {
@@ -471,6 +471,18 @@ pub async fn run_check_proof(file: String, root: Option<String>) -> Result<()> {
             println!("claim:      absent");
             println!("map size:   {} entries", proof.len);
         }
+    }
+
+    // Everything below is unauthenticated context carried alongside the proof.
+    println!("\nunverified labels from the file (not covered by the proof):");
+    println!(
+        "  path:     {}",
+        portable.path.as_deref().unwrap_or("(none)")
+    );
+    println!("  inode:    {}", portable.inode);
+    println!("  issuer:   {}", portable.issuer);
+    if u128::from_str_radix(portable.inode.trim_start_matches("0x"), 16) != Ok(proven_inode) {
+        println!("  WARNING:  the file's inode label does not match the proof's subject");
     }
 
     if root.is_some() {

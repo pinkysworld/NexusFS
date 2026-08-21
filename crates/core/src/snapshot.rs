@@ -72,7 +72,14 @@ impl CoreState {
         for (key, value) in rows {
             let (Some(inode), Ok(hash)) = (parse_imap_key(&key), <[u8; 32]>::try_from(&value[..]))
             else {
-                bail!("inode map holds a malformed entry");
+                // Name the row: this aborts every read of the state root, so the one
+                // thing an operator needs is which entry to look at.
+                bail!(
+                    "inode map holds a malformed entry: key {} ({} bytes), value {} bytes",
+                    key.iter().map(|b| format!("{b:02x}")).collect::<String>(),
+                    key.len(),
+                    value.len()
+                );
             };
             out.push((inode, hash));
         }
@@ -173,9 +180,17 @@ impl CoreState {
         }
     }
 
-    /// Materialize and store one directory's object, returning its hash.
-    fn store_dir_object(&self, inode: u128) -> Result<Hash> {
-        let entries = self.materialize_dir(inode)?;
+    /// Build one directory's canonical object from state.
+    ///
+    /// The single construction site, called by both the patch path
+    /// ([`store_dir_object`]) and the full walk ([`materialize_tree`]). Two copies
+    /// would be a state root that depends on which path produced it: a field added to
+    /// `DirNode` in one and not the other splits the commitment silently, and the
+    /// split only shows up as two converged replicas disagreeing.
+    ///
+    /// Metadata comes from the inode record, never from wall-clock: the snapshot has
+    /// to be reproducible from state alone.
+    fn dir_object(&self, inode: u128, entries: Vec<crate::object::DirEntry>) -> Result<Object> {
         let record = self.load_inode(inode)?;
         let attrs = record.as_ref().map(|r| r.attrs.value).unwrap_or(AttrState {
             mode: 0o40755,
@@ -200,7 +215,14 @@ impl CoreState {
             ctime_unix_ms: ctime,
         };
         dir.canonicalize();
-        self.put_object(&Object::DirNode(dir))
+        Ok(Object::DirNode(dir))
+    }
+
+    /// Materialize and store one directory's object, returning its hash.
+    fn store_dir_object(&self, inode: u128) -> Result<Hash> {
+        let entries = self.materialize_dir(inode)?;
+        let object = self.dir_object(inode, entries)?;
+        self.put_object(&object)
     }
 
     /// Whether `parent` currently lists `child` among its live entries.
@@ -288,34 +310,7 @@ impl CoreState {
             }
         }
 
-        // Metadata comes from the inode record, never from wall-clock: the snapshot
-        // has to be reproducible from state alone.
-        let record = self.load_inode(inode)?;
-        let attrs = record.as_ref().map(|r| r.attrs.value).unwrap_or(AttrState {
-            mode: 0o40755,
-            uid: 0,
-            gid: 0,
-        });
-        let (mtime, ctime) = record
-            .as_ref()
-            .map(|r| (r.content.value.mtime_unix_ms, r.ctime_unix_ms))
-            .unwrap_or((0, 0));
-
-        let mut dir = DirNode {
-            header: ObjectHeader {
-                type_tag: 2,
-                version: 1,
-            },
-            entries,
-            mode: attrs.mode,
-            uid: attrs.uid,
-            gid: attrs.gid,
-            mtime_unix_ms: mtime,
-            ctime_unix_ms: ctime,
-        };
-        dir.canonicalize();
-
-        let object = Object::DirNode(dir);
+        let object = self.dir_object(inode, entries)?;
         let hash = if store {
             self.put_object(&object)?
         } else {

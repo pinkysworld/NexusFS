@@ -410,6 +410,91 @@ mod tests {
         }
     }
 
+    /// A lied-about `len` must not buy the prover anything.
+    ///
+    /// `len` is the one field of an absence proof the root does not cover, so it is
+    /// the natural thing to lie about. Three lies would each be fatal, and each is
+    /// swept here against a *real* root with *real* neighbour paths — the only freedom
+    /// the attacker has is the claimed size and the claimed positions:
+    ///
+    /// - pass a middle leaf off as the last one, to prove absence past it;
+    /// - pass a middle leaf off as the first one, to prove absence before it;
+    /// - pass two non-adjacent leaves off as adjacent, to swallow what lies between.
+    ///
+    /// Every one of them names an inode that is genuinely present, so a single
+    /// acceptance is a forged proof of a deletion that never happened.
+    #[test]
+    fn a_forged_length_cannot_manufacture_a_gap() {
+        for n in 2..=9usize {
+            let map: Vec<(u128, Hash)> = (1..=n as u128).map(|i| (i * 10, [i as u8; 32])).collect();
+            let root = commit(&map);
+            let real: Vec<InclusionProof> = map
+                .iter()
+                .map(|(i, _)| prove(&map, *i).expect("entry is present"))
+                .collect();
+
+            for len in 1..=(2 * n + 4) {
+                for j in 0..n {
+                    // "past the end": target sits above leaf j, but j is not the last.
+                    if j + 1 < n {
+                        let forged = AbsenceProof {
+                            inode: map[j + 1].0,
+                            len,
+                            left: Some(Neighbour {
+                                index: len.saturating_sub(1),
+                                proof: real[j].clone(),
+                            }),
+                            right: None,
+                        };
+                        assert!(
+                            check_absent(&forged, &root).is_err(),
+                            "n={n} len={len} j={j}: a middle leaf was accepted as the last"
+                        );
+                    }
+
+                    // "before the start": target sits below leaf j, but j is not first.
+                    if j > 0 {
+                        let forged = AbsenceProof {
+                            inode: map[j - 1].0,
+                            len,
+                            left: None,
+                            right: Some(Neighbour {
+                                index: 0,
+                                proof: real[j].clone(),
+                            }),
+                        };
+                        assert!(
+                            check_absent(&forged, &root).is_err(),
+                            "n={n} len={len} j={j}: a middle leaf was accepted as the first"
+                        );
+                    }
+
+                    // "adjacent": two leaves with at least one entry between them.
+                    for k in (j + 2)..n {
+                        for i in 0..len.saturating_sub(1) {
+                            let forged = AbsenceProof {
+                                inode: map[j + 1].0,
+                                len,
+                                left: Some(Neighbour {
+                                    index: i,
+                                    proof: real[j].clone(),
+                                }),
+                                right: Some(Neighbour {
+                                    index: i + 1,
+                                    proof: real[k].clone(),
+                                }),
+                            };
+                            assert!(
+                                check_absent(&forged, &root).is_err(),
+                                "n={n} len={len} j={j} k={k} i={i}: a gap was manufactured"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn absence_is_not_offered_for_something_present() {
         let map = entries(5);
@@ -611,6 +696,14 @@ pub struct Neighbour {
 pub struct AbsenceProof {
     pub inode: u128,
     /// Number of leaves in the committed map.
+    ///
+    /// Supplied by the prover and *not* covered by the root — the commitment is over
+    /// the leaves alone. What makes it non-forgeable is the shape check in
+    /// [`check_neighbour`]: a path that reaches the root already fixes which leaf it
+    /// belongs to, and no `(len, index)` pair other than the true one reproduces that
+    /// path's shape. `a_forged_length_cannot_manufacture_a_gap` sweeps the whole space
+    /// of lies for small maps, because that property is the load-bearing one and it is
+    /// not self-evident from reading `expected_shape`.
     pub len: usize,
     /// The greatest entry below `inode`; absent only when the inode precedes them all.
     pub left: Option<Neighbour>,

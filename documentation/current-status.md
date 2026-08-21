@@ -355,6 +355,13 @@ at 1000. Paths that do not end in an applied operation — peer enrolment, the f
 stamp, collection, bootstrap — carry their own flush rather than relying on the database
 being dropped cleanly, which a killed process never does.
 
+That boundary syncs once, which it did not always do. `Stores` holds a blob store and a
+key-value store, and every deployment builds both from one sled database — so flushing
+each in turn fsynced the same shared log twice for a single operation. `Stores::shared`
+now records that the two roles are one backend and `flush` syncs accordingly; the
+general case has `Stores::split`, which still syncs both. Measured over 300 `mkdir`s on
+a warm database, the redundant sync cost 7ms of a 16.7ms operation boundary.
+
 ### Browser Playground
 
 `crates/wasm` compiles the core to `wasm32-unknown-unknown` against the in-memory

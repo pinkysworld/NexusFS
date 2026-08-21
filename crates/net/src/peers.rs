@@ -153,6 +153,13 @@ pub async fn fetch_from_peers(
     let mut stored = 0usize;
 
     for peer in peers {
+        // Address first: working out what is still missing is a store scan, and a peer
+        // this node cannot even address is never going to answer for it.
+        let Ok(addr) = peer.parse::<SocketAddr>() else {
+            warn!(peer = %peer, "skipping peer with an unparseable address");
+            continue;
+        };
+
         let outstanding = match ctx.core.missing_chunk_subset(wanted) {
             Ok(rest) if rest.is_empty() => break,
             Ok(rest) => rest,
@@ -160,10 +167,6 @@ pub async fn fetch_from_peers(
                 warn!(error = %e, "could not determine what is still missing");
                 break;
             }
-        };
-
-        let Ok(addr) = peer.parse::<SocketAddr>() else {
-            continue;
         };
 
         let attempt = tokio::time::timeout(FETCH_TIMEOUT, async {

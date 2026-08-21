@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use tracing::info;
@@ -17,13 +17,18 @@ use crate::config::Config;
 /// through `EnergySource` to explain what is happening. Sampling once and caching is
 /// what keeps the console's explanation true of the pass that actually ran — a second
 /// independent sample could report "on mains" next to a throttled sync.
+#[cfg(any(feature = "quic", feature = "admin"))]
 struct EnergyGate {
     scheduler: nexusfs_energy::RuleBasedScheduler,
+    /// Reported by the console so an operator can tell "nothing is throttling this"
+    /// apart from "throttling is switched off"; nothing else needs it.
+    #[cfg_attr(not(feature = "admin"), allow(dead_code))]
     enabled: bool,
     core: CoreState,
-    last: Mutex<(nexusfs_energy::Telemetry, nexusfs_energy::SyncBudget)>,
+    last: std::sync::Mutex<(nexusfs_energy::Telemetry, nexusfs_energy::SyncBudget)>,
 }
 
+#[cfg(any(feature = "quic", feature = "admin"))]
 impl EnergyGate {
     fn new(cfg: &crate::config::Energy, core: CoreState) -> Self {
         let thresholds =
@@ -37,7 +42,7 @@ impl EnergyGate {
             scheduler,
             enabled: cfg.enabled,
             core,
-            last: Mutex::new((
+            last: std::sync::Mutex::new((
                 nexusfs_energy::Telemetry::default(),
                 nexusfs_energy::SyncBudget::unlimited(),
             )),
@@ -69,6 +74,7 @@ impl EnergyGate {
     /// Falls back to sampling when that reading is missing or older than
     /// [`STALE_AFTER_MS`], which is what keeps the console live on a node with
     /// replication switched off — there, nothing else ever calls `sample`.
+    #[cfg(feature = "admin")]
     fn current(&self) -> (nexusfs_energy::Telemetry, nexusfs_energy::SyncBudget) {
         /// Comfortably longer than any sane sync interval, so a node that *is*
         /// replicating always reports the decision behind the last pass rather than a
@@ -142,14 +148,14 @@ impl nexusfs_admin::EnergySource for EnergyGate {
 /// bytes. Without this, a node under a metadata-only budget knows a file exists and
 /// cannot serve it until the next unconstrained pass — which turns a deliberate policy
 /// into an outage from the reader's point of view.
-#[cfg(all(feature = "quic", any(feature = "admin", feature = "s3")))]
+#[cfg(feature = "quic")]
 struct PeerContentFetcher {
     endpoint: nexusfs_net::quic::QuicEndpoint,
     peers: Vec<String>,
     ctx: nexusfs_net::session::SessionCtx,
 }
 
-#[cfg(all(feature = "quic", any(feature = "admin", feature = "s3")))]
+#[cfg(feature = "quic")]
 impl nexusfs_core::ContentFetcher for PeerContentFetcher {
     fn fetch<'a>(&'a self, hashes: &'a [nexusfs_proto::Hash]) -> nexusfs_core::FetchFuture<'a> {
         Box::pin(async move {
@@ -235,6 +241,9 @@ pub async fn run_status(config_path: PathBuf) -> Result<()> {
 
 pub async fn run_daemon(config_path: PathBuf) -> Result<()> {
     let cfg = Config::load(&config_path)?;
+    // The token is only read by the admin console; a build without it still needs one
+    // minted so the on-disk state is the same whichever build touches it.
+    #[cfg_attr(not(feature = "admin"), allow(unused_variables))]
     let (core, identity, admin_token) = open_core(&cfg)?;
 
     // Before anything is written: an old or newer store must not be operated on by a
@@ -249,17 +258,32 @@ pub async fn run_daemon(config_path: PathBuf) -> Result<()> {
     let peer_registry = nexusfs_net::peers::PeerRegistry::new();
 
     // One gate, two readers: replication acts on it, the console explains it.
-    let energy_gate = Arc::new(EnergyGate::new(&cfg.energy, core.clone()));
-    if !cfg.energy.enabled {
-        info!("energy-aware scheduling is disabled; replication will run unthrottled");
-    }
+    #[cfg(any(feature = "quic", feature = "admin"))]
+    let energy_gate = {
+        if !cfg.energy.enabled {
+            info!("energy-aware scheduling is disabled; replication will run unthrottled");
+        }
+        Arc::new(EnergyGate::new(&cfg.energy, core.clone()))
+    };
 
     // Replication starts before the facades, because they borrow its transport to
     // fetch content this node deferred. Starting them first would mean either a second
     // endpoint or a read path that cannot reach a peer.
+    // Consumed by the facades; a quic-only build still runs replication, it just has
+    // no reader to serve deferred content to.
+    #[cfg_attr(not(any(feature = "admin", feature = "s3")), allow(unused_variables))]
     #[cfg(feature = "quic")]
-    let content_fetcher: Option<Arc<dyn nexusfs_core::ContentFetcher>> = {
-        let listen = cfg.net_addr()?;
+    let content_fetcher: Option<Arc<dyn nexusfs_core::ContentFetcher>> = 'replication: {
+        // Not `?`: replication starting before the facades means a typo in `net.listen`
+        // would otherwise abort the daemon before the admin console is up — and a wrong
+        // config is exactly when an operator wants that console.
+        let listen = match cfg.net_addr() {
+            Ok(listen) => listen,
+            Err(e) => {
+                tracing::error!(error = %format!("{e:#}"), "replication failed to start");
+                break 'replication None;
+            }
+        };
         let ctx = nexusfs_net::session::SessionCtx {
             core: core.clone(),
             identity: identity.clone(),
@@ -302,6 +326,7 @@ pub async fn run_daemon(config_path: PathBuf) -> Result<()> {
             }
         }
     };
+    #[cfg_attr(not(any(feature = "admin", feature = "s3")), allow(unused_variables))]
     #[cfg(not(feature = "quic"))]
     let content_fetcher: Option<Arc<dyn nexusfs_core::ContentFetcher>> = None;
 
@@ -377,10 +402,7 @@ pub(crate) fn open_core(cfg: &Config) -> Result<(CoreState, Identity, String)> {
 
     let db_path = data_dir.join("db");
     let store = SledStore::open(&db_path).context("open sled store")?;
-    let stores = Stores {
-        blobs: Arc::new(store.clone()),
-        kv: Arc::new(store),
-    };
+    let stores = Stores::shared(store);
 
     // Load/generate identity.
     let id_path = data_dir.join("identity.toml");
