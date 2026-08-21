@@ -73,9 +73,13 @@ pub struct Posix {
 pub struct Security {
     /// Encrypt chunk content before it is written to disk.
     pub encrypt_at_rest: bool,
-    /// `none`, `transparent`, or `required` (transparent, and reject unproven ops).
-    /// `zk_commit` and `zk_full` are accepted but not implemented, and behave as
-    /// `none` rather than silently pretending to prove anything.
+    /// `none`, `transparent`, `required` (transparent, and reject unproven ops), or
+    /// `zk_commit` (attach a Merkle inclusion path for the entry each operation is
+    /// about, checkable against the root without the author's prior state).
+    ///
+    /// `zk_full` is accepted and behaves as `none` rather than silently pretending to
+    /// prove anything — there is no proving system, and `zk_commit` is a commitment
+    /// scheme, not zero-knowledge.
     pub proof_mode: String,
 }
 

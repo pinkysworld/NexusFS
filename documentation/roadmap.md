@@ -1,6 +1,6 @@
 # Roadmap
 
-Last updated: August 2, 2026
+Last updated: August 21, 2026
 
 This roadmap turns the current NexusFS blueprint into a staged execution plan.
 
@@ -29,8 +29,9 @@ The key rule is simple: every milestone must leave behind a repository that stil
 The workspace, daemon, storage baseline, docs, and the local filesystem core are real: a
 signed operation log drives CRDT-backed namespace state, files round-trip through the CLI,
 state survives restart, two nodes converge over QUIC, content can be encrypted at rest,
-and replication adapts what it transfers to the device's power situation. What remains is
-operational hardening, the POSIX facade, and the proof systems.
+replication adapts what it transfers to the device's power situation, and a node that
+deferred content fetches it on demand when someone reads. Every milestone's exit criteria
+are met. What is not built is listed in `./backlog.md`; none of it blocks what shipped.
 
 ## Milestone Roadmap
 
@@ -282,9 +283,9 @@ switch the commitment to something like Poseidon, which changes the state root a
 That is a research effort with its own milestone-sized risk, and a stub that looked like
 a circuit would be worse than an honest commitment layer.
 
-`zk_full` therefore remains unimplemented and behaves as `none`. Proving *absence* is
-also unbuilt: the sorted leaf layout supports the usual approach of proving the two
-entries that bracket a gap, but nothing needs it yet.
+`zk_full` therefore remains unimplemented and behaves as `none`. Proving *absence* was
+unbuilt when this milestone closed and landed under M8: the sorted leaf layout supports
+proving the two entries that bracket a gap, and that is what absence proofs now do.
 
 ### M8: Research Expansion
 
@@ -317,15 +318,26 @@ Candidate tracks, and what happened to each:
 Also delivered under this milestone, from the performance backlog: durability moved from
 the record to the operation boundary, which made applying an operation 6.8-9.5x faster.
 
+Also delivered after this milestone closed, and worth recording here because both were
+named as open at the time:
+
+- **Incremental snapshots.** The state-root walk was the visible cost of an apply — 3.6ms
+  at 1000 entries, roughly 40%, growing with the tree. The inode map is now maintained
+  with parent pointers rather than rebuilt by walking, and the state root fell from
+  3.66ms to 1.04ms at a thousand entries.
+- **On-demand fetch.** A node under a metadata-only budget knew a file existed and could
+  not serve it. A read now asks the daemon's transport for exactly what it is missing.
+
 ## What is still open
 
-- Incremental snapshots. The state-root walk is now the visible cost of an apply —
-  3.6ms at 1000 entries, roughly 40% — and it grows with the tree. Making it incremental
-  needs parent pointers and a persisted inode map.
 - A mountable interface. POSIX/FUSE is *not* outstanding work: M2's goal was one
   user-facing facade and named POSIX and S3 as alternatives, and the S3 one shipped.
   Anything here is new scope, not a debt.
+- An incremental Merkle tree. The map is maintained now, but the commitment over it is
+  still rebuilt per apply. An apply is fsync-bound, so measure before starting.
 - A proving system, which stays behind its own milestone for the reasons in M7.
+- Metered-link detection, per-recipient key envelopes, and compressed proof batches —
+  each small, each named in `./backlog.md`.
 
 Exit criteria:
 
@@ -356,14 +368,23 @@ The preferred delivery order is:
 
 ## Success Markers For The Next 90 Days
 
-The highest-value short-term targets are:
+The previous set — a real local state machine, richer admin state, oplog replication
+between two nodes, then blob transfer and remote apply — all landed, which is what moved
+NexusFS from “promising local core” to a working distributed baseline.
 
-1. complete the real local state machine
-2. surface richer state in the admin API
-3. bring up oplog replication between two nodes
-4. follow with blob transfer and remote apply
+The next set is about reach rather than correctness:
 
-If those land, NexusFS moves from “promising local core” into “real distributed system baseline.”
+1. make the scheduler's link rule fire in the field, by detecting metered links per
+   platform
+2. stop replicas sharing one repository key, by wiring `crypto::envelope` into the write
+   path
+3. decide whether a mountable interface is wanted, and if so pick WebDAV or FUSE on the
+   grounds in `./current-status.md` rather than by default
+4. make the Merkle tree incremental, if measurement says the rebuild has become the
+   bottleneck it is not yet
+
+None of these is a milestone. The milestone plan is finished; what follows is ordinary
+product work, and it should be picked by value rather than by sequence.
 
 ## Companion Documents
 

@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NexusFS Security Model</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-page="security">
+    <div class="page-shell">
+      <header class="site-header">
+        <a class="brand" href="./index.html">
+          <span class="brand-mark">N</span>
+          <span>NexusFS</span>
+        </a>
+        <nav class="site-nav" aria-label="Primary">
+          <a href="./index.html">Home</a>
+          <a href="./playground.html">Playground</a>
+          <a href="./docs.html">Docs</a>
+          <a href="./architecture.html">Architecture</a>
+          <a href="./roadmap.html">Roadmap</a>
+          <a href="./status.html">Status</a>
+          <a href="https://github.com/pinkysworld/NexusFS" target="_blank" rel="noreferrer">GitHub</a>
+        </nav>
+      </header>
+
+      <main>
+        <section class="hero hero-compact reveal">
+          <div class="hero-copy">
+            <p class="eyebrow">Security Model</p>
+            <h1>Received is not the same as accepted.</h1>
+            <p class="lede">
+              NexusFS is verifier-first: every boundary where bytes arrive from somewhere
+              else — a peer, a facade, a proof file — re-derives the fact rather than
+              trusting the claim. The page below states what is actually enforced, and
+              then what is not, because a security page that only lists the wins is a
+              marketing page.
+            </p>
+          </div>
+        </section>
+
+        <section class="section reveal">
+          <div class="card-grid">
+            <article class="feature-card">
+              <h3>Signed operations</h3>
+              <p>
+                Verified before they change state, through the same apply path local
+                writes use. There is no route into the state machine that skips it.
+              </p>
+            </article>
+            <article class="feature-card">
+              <h3>Content matched to the request</h3>
+              <p>
+                A chunk is hashed before it is stored — and content that was never
+                requested is dropped even when it hashes correctly. Self-consistency is
+                not the same as having been asked for.
+              </p>
+            </article>
+            <article class="feature-card">
+              <h3>Pinned peer keys</h3>
+              <p>
+                An ed25519 key pinned on first use, independent of TLS. Replacing one
+                needs <code>--rotate</code>, so an unexpected key is never silently
+                accepted as a planned rotation.
+              </p>
+            </article>
+            <article class="feature-card">
+              <h3>Malformed evidence is refused</h3>
+              <p>
+                A proof bundle that does not parse, or does not match its operation, is
+                rejected deterministically. Evidence that can be malformed and still
+                accepted only looks like a check.
+              </p>
+            </article>
+            <article class="feature-card">
+              <h3>A proof names its own subject</h3>
+              <p>
+                <code>check-proof</code> reports the inode the proof commits to, not the
+                labels the file carries — those are not covered by the proof, so they are
+                printed as unverified and flagged when they disagree.
+              </p>
+            </article>
+            <article class="feature-card">
+              <h3>Adjacency, actually checked</h3>
+              <p>
+                Absence rests on two entries being adjacent, not merely bracketing. The
+                claimed map size is prover-supplied, so the whole space of lies is swept
+                by test rather than argued for.
+              </p>
+            </article>
+          </div>
+        </section>
+
+        <section class="section layout-two reveal">
+          <div class="content-panel">
+            <h2>Assumed about the world</h2>
+            <ul class="list-block">
+              <li>Devices may be offline for long periods.</li>
+              <li>Peers may be honest, buggy, stale, or malicious.</li>
+              <li>Local disks may need at-rest encryption.</li>
+              <li>Bandwidth and energy are constrained resources.</li>
+            </ul>
+          </div>
+          <div class="content-panel">
+            <h2>Limits worth stating plainly</h2>
+            <ul class="list-block">
+              <li>Replicas share one repository key — this protects the disk and the wire, not one peer from another.</li>
+              <li>File names, directory structure and file sizes are not encrypted.</li>
+              <li>The commitment layer is not zero-knowledge: a verifier learns the entry proved, just not the rest of the tree.</li>
+              <li>The S3 facade has no request signing, so it belongs on loopback unless a shared secret is set.</li>
+              <li>Identical plaintext does not deduplicate; convergent encryption would leak whether a node stores a candidate file.</li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="section reveal">
+          <div class="callout">
+            <div>
+              <p class="eyebrow">Auditing</p>
+              <h2>One command reads the whole repository back</h2>
+              <p>
+                <code>nexusfs verify</code> checks every signature and proof and reads
+                every file — so missing chunks, wrong keys and tampered ciphertext all
+                surface. It exits non-zero on failure, which makes it usable directly as
+                a cron or CI check, and the same report is served at
+                <code>/api/security</code>.
+              </p>
+            </div>
+            <div class="callout-actions">
+              <a class="button button-primary" href="./operations.html">Operations Guide</a>
+              <a class="button button-secondary" href="./protocol.html">Protocol</a>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <p>Verifier-first by construction, and explicit about what it does not cover.</p>
+        <p>© <span id="year"></span> NexusFS</p>
+      </footer>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

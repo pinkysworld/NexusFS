@@ -1,5 +1,22 @@
 # NexusFS Roadmap (solo-friendly)
 
+> **Superseded — kept for history.** This was the original capability sketch, written
+> before any of it existed, and its milestone numbering does not match what was built.
+> The delivered plan, with exit criteria and what was deliberately not built, is
+> [`../documentation/roadmap.md`](../documentation/roadmap.md).
+>
+> The numbering diverged from M6 onward. What actually shipped:
+>
+> | Here | Delivered as |
+> | --- | --- |
+> | M0–M5 | the same, and complete |
+> | M6 "ZK MVP" | **M7 State commitments** — a Merkle commitment with inclusion and absence proofs, not a circuit. A proving system stays behind its own milestone |
+> | — | **M6 Operational hardening** — collection, format versioning, peer enrolment. Not in this sketch at all, and needed before any of the above was operable |
+> | M7 "Expand research tracks" | **M8 Research expansion** — proof batching and absence proofs shipped; privacy layers, DTN and policy systems are named as open |
+>
+> All eight delivered milestones are complete. See
+> [`../documentation/current-status.md`](../documentation/current-status.md).
+
 This roadmap is organized by **capability** rather than by research tracks.
 
 ## Milestone M0 — Repo bootstrapped (this zip)

@@ -38,8 +38,9 @@
             <h1>One binary, layered responsibilities.</h1>
             <p class="lede">
               The architecture keeps local state deterministic and verifiable while
-              leaving plenty of room for replication, optional facades, and future
-              proof systems.
+              replication, the facades and the commitment layer sit on top of it without
+              reaching past it. Every one of them goes through the same signed-operation
+              pipeline; there is no back door into the state machine.
             </p>
           </div>
         </section>
@@ -53,6 +54,8 @@
               <li>Filesystem mutations are signed operations.</li>
               <li>Replication must be safe to replay.</li>
               <li>Remote state is accepted only after verification.</li>
+              <li>Content is stored only when it was asked for.</li>
+              <li>Durability sits at the operation boundary, not the record boundary.</li>
             </ul>
           </div>
           <div class="diagram-frame">
@@ -75,11 +78,13 @@
             </article>
             <article class="feature-card">
               <h3>Crypto + Proofs</h3>
-              <p>Signing, at-rest encryption, transparent proofs, and future ZK layers.</p>
+              <p>Signing, at-rest encryption, transparent proofs, and a Merkle state
+                commitment with inclusion and absence proofs. Not a proving system.</p>
             </article>
             <article class="feature-card">
               <h3>Transport + Facades</h3>
-              <p>QUIC replication, admin UI, S3-like APIs, and future POSIX mounting.</p>
+              <p>QUIC replication, the admin console, and an S3-compatible API. A POSIX
+                mount is new scope rather than an unfinished one.</p>
             </article>
           </div>
         </section>

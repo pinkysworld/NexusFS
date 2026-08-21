@@ -118,6 +118,24 @@ anything the holder could not already see. Supply `--root` from a source you tru
 without it the command checks the proof against the root recorded inside itself and says
 plainly that this proves only internal consistency.
 
+Read its output carefully, because it distinguishes two things that look alike. The
+`subject` line is the inode the *proof* commits to. The `path`, `inode` and `issuer`
+lines beneath it are labels the proof file carries and the proof does not cover — anyone
+can edit them — so they are printed as unverified, and a WARNING appears when a label
+disagrees with the proof's actual subject. A genuine proof relabelled to name a different
+file is exactly the attack this separation exists to defeat.
+
+Proving something is *gone* works the same way but is asked by inode, since a path that
+resolves to nothing has no inode to name:
+
+```
+nexusfs prove --config ./nexusfs.toml --inode <inode> --out gone.json
+nexusfs check-proof gone.json --root <root-after-the-deletion>
+```
+
+An inclusion proof against the earlier root and an absence proof against the later one
+together demonstrate the deletion to someone holding neither state.
+
 ### Enrolling peers
 
 Leave `net.tofu = true` only where first contact cannot be intercepted. Otherwise set it
@@ -137,10 +155,13 @@ Recommended day-to-day workflow:
 
 ## Expected Evolution
 
-As the project matures, this guide should expand to cover:
+Peer enrolment, migration flows and proof verification tooling are covered above. What
+this guide still cannot tell you how to do:
 
-- backup and restore
-- peer enrollment
-- storage compaction
-- migration flows
-- proof verification tooling
+- **Backup and restore.** There is no supported procedure beyond copying the data
+  directory while the daemon is stopped, and no tested restore path.
+- **Storage compaction.** `gc` reclaims unreachable blobs; nothing compacts the
+  underlying database, and orphaned inode and directory records are left behind.
+- **Reading the energy budget without the admin feature.** `/api/energy` is the only
+  place the decision is visible, so a build without `admin` cannot explain its own
+  throttling.

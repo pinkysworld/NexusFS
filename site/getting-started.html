@@ -37,9 +37,10 @@
             <p class="eyebrow">Getting Started</p>
             <h1>Bring up the local core fast.</h1>
             <p class="lede">
-              NexusFS already boots as a local-first daemon with persistent storage and
-              an embedded admin interface. The commands below are the fastest path to a
-              working system.
+              One binary holds the CLI, the daemon, the admin console and the optional
+              facades. The commands below are the fastest path from a checkout to real
+              bytes in and real bytes out, surviving restart, with every operation signed
+              and verified.
             </p>
           </div>
         </section>
@@ -47,8 +48,18 @@
         <section class="section reveal">
           <div class="command-block">
             <pre><code>cargo build -p nexusfs
-cargo run -p nexusfs -- daemon --config examples/nexusfs.toml
-cargo run -p nexusfs -- status --config examples/nexusfs.toml</code></pre>
+# node.data_dir must live outside any synced folder
+cp examples/nexusfs.toml ./nexusfs.toml
+
+cargo run -p nexusfs -- mkdir --config ./nexusfs.toml /docs
+echo "hello nexus" &gt; /tmp/a.txt
+cargo run -p nexusfs -- put   --config ./nexusfs.toml /tmp/a.txt /docs/a.txt
+cargo run -p nexusfs -- ls    --config ./nexusfs.toml /docs
+cargo run -p nexusfs -- cat   --config ./nexusfs.toml /docs/a.txt
+cargo run -p nexusfs -- status --config ./nexusfs.toml
+
+# the admin console comes up on :7070
+cargo run -p nexusfs -- daemon --config ./nexusfs.toml</code></pre>
           </div>
         </section>
 
@@ -57,22 +68,32 @@ cargo run -p nexusfs -- status --config examples/nexusfs.toml</code></pre>
             <h2>What happens on first run</h2>
             <ul class="list-block">
               <li>The daemon opens the local storage backend.</li>
+              <li>It refuses to run against an on-disk format it does not understand.</li>
               <li>A persistent device identity is created if missing.</li>
               <li>An initial repository head is bootstrapped.</li>
               <li>The admin surface starts with a generated access token.</li>
             </ul>
+            <p class="section-copy">
+              The embedded database takes an exclusive lock, so <code>status</code>
+              cannot run while the daemon holds the store — query the running daemon
+              through the admin API instead.
+            </p>
           </div>
         </section>
 
         <section class="section reveal">
           <div class="content-panel">
-            <h2>What is already implemented</h2>
-            <ul class="list-block">
-              <li>Canonical object encoding and deterministic hashing</li>
-              <li>Chunked blob storage with offsets and lengths</li>
-              <li>Persistent snapshot heads</li>
-              <li>Idempotent minimal oplog application scaffolding</li>
-            </ul>
+            <h2>Turning on more of it</h2>
+            <p class="section-copy">
+              Replication, the S3 facade and the console are feature flags on the same
+              binary. <code>admin</code> is on by default; <code>quic</code> and
+              <code>s3</code> are opt-in.
+            </p>
+            <div class="command-block">
+              <pre><code>cargo build -p nexusfs --features "admin,quic,s3"
+# two nodes, seeded apart, converging on one state root
+./scripts/dev_run_two_nodes.sh</code></pre>
+            </div>
           </div>
         </section>
       </main>

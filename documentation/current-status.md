@@ -1,6 +1,6 @@
 # Current Status
 
-Last updated: August 11, 2026
+Last updated: August 21, 2026
 
 This page summarizes what NexusFS currently implements in the repository and what remains in the backlog.
 
@@ -16,8 +16,12 @@ formats, and enrol peers without relying on trust-on-first-use. The state root i
 Merkle commitment, so any single entry can be proved to a party holding no filesystem —
 including proving an entry is *absent*, which makes a deletion demonstrable.
 
+A node that skipped content to save power fetches it on demand when someone reads,
+rather than waiting for the next unconstrained pass.
+
 Not yet implemented: the POSIX/FUSE facade, and zero-knowledge proving — the commitment
-layer is deliberately not that, for reasons recorded below.
+layer is deliberately not that, for reasons recorded below. 167 tests pass, clippy is
+clean, and every feature combination of the binary is built in CI.
 
 ## Implemented Now
 
@@ -25,7 +29,10 @@ layer is deliberately not that, for reasons recorded below.
 
 - The Rust workspace builds as a cohesive multi-crate project on current stable Rust.
 - CI runs `cargo fmt`, `cargo clippy -D warnings` and `cargo test --workspace` on every
-  push and pull request.
+  push and pull request, builds the wasm target and asserts the module still has no JS
+  imports, and checks every feature combination of the binary rather than the two that
+  happen to be used — a `cfg` on a type and a `cfg` on its construction site can drift
+  apart, and only a build of that exact combination notices.
 - The repository includes public-facing docs in `documentation/` and a static project
   website in `site/`.
 
@@ -72,19 +79,21 @@ layer is deliberately not that, for reasons recorded below.
 
 - The embedded admin server is wired into the daemon and serves a browsable UI.
 - The API exposes:
-  - `/api/status` (head, state root, op and pending counts)
-  - `/api/fs/head`
-  - `/api/fs/ls?path=`
-  - `/api/oplog/summary`
-  - `/api/oplog/recent?limit=`
-  - `/api/storage/stats`
-  - `/api/peers`
+  - `/api/status` (head, state root, op and pending counts, format version)
+  - `/api/fs/head`, `/api/fs/ls?path=`, `/api/fs/cat?path=`
+  - `/api/fs/proof?path=` (inclusion proof for one entry)
+  - `/api/oplog/summary`, `/api/oplog/recent?limit=`
+  - `/api/storage/stats`, `/api/storage/gc` (survey only, never deletes)
+  - `/api/peers` (sync state per configured peer), `/api/peers/enrolled` (pinned keys)
+  - `/api/identity` (this node's device id and public key)
+  - `/api/energy` (the reading, the budget, and the rule that fired)
   - `/api/security` (encryption state, proof coverage, audit result)
 
 ### CLI
 
-`nexusfs` supports `daemon`, `status`, `verify`, `mkdir [-p]`, `put`, `cat`, `ls`, `rm`
-and `mv`.
+`nexusfs` supports `daemon` and `status`; the filesystem verbs `mkdir [-p]`, `put`,
+`cat`, `ls`, `rm` and `mv`; the operator verbs `verify`, `gc`, `migrate` and
+`peer identity|list|add|remove`; and the proof verbs `prove` and `check-proof`.
 Every mutating verb builds a signed operation and applies it through the same pipeline
 replication uses.
 
@@ -180,7 +189,8 @@ same report is available at `/api/security`.
 
 These proofs are auditable evidence, not zero-knowledge and not a proof of correctness.
 Establishing that a transition was correct means replaying it, which `verify` does
-locally. `zk_commit` and `zk_full` remain unimplemented and are treated as `none`
+locally. `zk_commit` is implemented and described below; it is a commitment scheme
+rather than a proving system. `zk_full` remains unimplemented and is treated as `none`
 rather than silently pretending to prove anything.
 
 ### Energy-Aware Scheduling
@@ -244,8 +254,11 @@ converts that into a refusal.
 
 An older format refuses to open and names `nexusfs migrate` as the fix. A newer one
 refuses and cannot be forced. Opening never migrates by itself: a migration rewrites
-records in place, and the operator may have no backup or be mid-rollout. The migration
-machinery is in place; v1 is the first format, so no step is implemented yet.
+records in place, and the operator may have no backup or be mid-rollout. The current
+format is v2, and the v1 step is real: moving the state root to a Merkle commitment
+changed what the root means, so the migration re-snapshots from live state rather than
+reinterpreting bytes. A brand-new store is stamped current rather than migrated, which
+is why "no head" and "pre-versioning" are distinguished instead of guessed.
 
 **Peer enrolment.** The pinned-key store lives in `core`, not in the networking crate,
 so keys can be managed on a build without QUIC and — more to the point — before any
@@ -286,7 +299,7 @@ hostile proof cannot cost unbounded work to reject.
 proved and its object hash; what it does not learn is the rest of the tree. The mode is
 named `ZkCommit` because an inclusion path is exactly the witness a SNARK circuit would
 consume — the commitment half of the job. `zk_full` remains unimplemented and behaves as
-`none`. Proving *absence* is also unbuilt.
+`none`. Proving *absence* is built and described below.
 
 Because the commitment *is* the state root, it is not compile-time optional: a build
 computing a different root could never replicate with one that did not. Changing it
@@ -342,6 +355,36 @@ proof against a new one demonstrates a deletion to someone holding neither state
 than compression — the paths still travel in full — but the prover stops rebuilding the
 tree per entry, which is the cost that hurts when answering for a whole directory.
 
+### The Maintained Inode Map
+
+The state root commits to a flat map of inode to object hash. That map used to be
+rebuilt by walking the whole tree on every applied operation — materializing, encoding
+and hashing every directory to enumerate what was reachable, work proportional to the
+filesystem rather than to the change.
+
+It is now maintained. A directory's hash depends only on its own entries and attributes,
+not on its children, so changing one inode changes exactly one map entry. Creates and
+writes patch the entries they touch; removals and renames fall back to a full walk,
+because they can change *which* inodes are reachable and there is no cheap bound on how
+many.
+
+Reachability is the part that has to be exact, and it is answered two ways: a reachable
+directory always carries a map entry, so membership settles it; a file may legitimately
+have none — it has no content yet — so it is answered through the parent recorded when
+it was created, confirming the parent still lists it. An operation applied inside a
+directory that has since been unlinked therefore adds nothing.
+
+Measured at a thousand entries: the state root fell from 3.66ms to 1.04ms. End-to-end an
+apply improved about 6%, because an apply is dominated by its fsync rather than by
+computation — a single fsync, since the duplicate described below was removed. The
+remaining cost is still linear: the Merkle tree is rebuilt from the map each time, so an
+incremental tree updating one leaf in O(log n) is the next layer rather than something
+this change delivered.
+
+Correctness is pinned by an invariant suite that re-derives the map with a full walk
+after every kind of operation and demands equality, since a wrong entry is not a stale
+cache but two replicas disagreeing about what the filesystem is.
+
 ### Storage Durability
 
 Writes are no longer individually durable. An operation touches about a dozen keys, and
@@ -362,6 +405,35 @@ now records that the two roles are one backend and `flush` syncs accordingly; th
 general case has `Stores::split`, which still syncs both. Measured over 300 `mkdir`s on
 a warm database, the redundant sync cost 7ms of a 16.7ms operation boundary.
 
+### Hardening
+
+A review pass over the replication and proof paths produced four changes worth recording,
+because each of them is a class of mistake rather than a one-off.
+
+**A peer's answer is not permission to store.** `fetch_chunks` and the blob phase of
+`pull_from_peer` accepted any blob whose bytes matched its own hash. Self-consistency is
+not the same as being asked for: a trusted-but-hostile peer could write arbitrary content
+into the content-addressed store, and because every stored blob counted as progress, the
+no-progress guard that ends a session never fired. Both now drop anything outside the
+set this node actually requested.
+
+**A label is not a claim.** `nexusfs check-proof` printed the proof file's `path` and
+`inode` header fields as the proof's subject. Those fields are not covered by the proof,
+so editing them relabelled a genuine proof as being about another file while the tool
+still reported that it held. It now prints the inode the proof commits to, marks the
+file's own labels as unverified, and warns when the two disagree — the one tool whose job
+is to not be fooled should not be the one repeating an attacker's text.
+
+**A wrong config is when you most want the console.** Replication starts before the
+facades, because a read borrows its transport to fetch deferred content. That ordering
+made a typo in `net.listen` abort the daemon before the admin server was up. The error is
+now reported and replication alone stays down.
+
+**Feature combinations rot when nothing builds them.** A `cfg` on a type and a `cfg` on
+its construction site had drifted apart, so a replication-only build did not compile —
+invisible because CI built two combinations out of seven. It now builds all of them with
+warnings denied.
+
 ### Browser Playground
 
 `crates/wasm` compiles the core to `wasm32-unknown-unknown` against the in-memory
@@ -377,7 +449,7 @@ daemon uses between real nodes.
 
 ### Test Coverage
 
-165 tests, including order-independent convergence (the same operation set applied in
+167 tests, including order-independent convergence (the same operation set applied in
 different orders yields an identical state root), idempotent re-apply, pending-op drain,
 concurrent-create conflict naming, concurrent-write resolution, rename-vs-unlink,
 subtree-cycle refusal, restart persistence, S3 key mapping and pagination, and
@@ -403,44 +475,87 @@ plus the forgeries they must refuse: non-adjacent neighbours, a neighbour that d
 bracket, a middle entry dressed up as the last, and a neighbour claiming an index its
 path shape does not support.
 
+The commitment values themselves are pinned as literals. Every other Merkle test checks
+the tree against *itself*, and all of them keep passing if the hashing changes as long
+as it changes consistently — but the root is on disk and on the wire, so a refactor that
+quietly moved it would break every existing repository while the suite stayed green.
+
 ## Partially Implemented Or Present As Scaffolding
 
-- `crypto::envelope` now seals *and* opens, but is not yet used by the write path.
+- `crypto::envelope` now seals *and* opens, but is not yet used by the write path, so
+  replicas still share one repository key.
 - Link cost is always reported as unknown: no platform metered-connection detection is
   implemented yet, so a metered link must currently be simulated in tests rather than
-  detected in the field.
-- POSIX/FUSE, privacy and ZK crates are present but remain stubs.
+  detected in the field. The scheduler rule exists and is tested; nothing can trigger it
+  in the field.
+- `Telemetry` carries a storage-headroom field that nothing populates.
+- `crates/fs_posix` and `crates/privacy` are stubs. `crates/zk` is not — it holds the
+  Merkle commitment, the proofs and the transparent bundles; what it does not hold is a
+  proving system.
 
 ## Backlog
 
-### Highest-Priority Backlog
+Nothing here blocks anything already shipped. These are the things that are genuinely
+not built, grouped by what they would buy.
 
-- Detect metered links per platform, so the scheduler's link rule can fire in the field.
-- Replace polling with push notification of new operations.
-- Collect orphaned inode and directory records, not only blobs: collection reclaims
+### Replication And Scheduling
+
+- **Metered-link detection per platform.** The scheduler treats a metered link as an
+  override that defers content regardless of charge. The rule is written and tested;
+  nothing reports a metered link, so it cannot fire in the field.
+- **Storage headroom.** `Telemetry` carries the field and no platform fills it, so the
+  scheduler cannot yet refuse to fill a nearly full disk.
+- **The budget in `nexusfs status`.** It is visible at `/api/energy` and nowhere else,
+  which means a node without the admin feature cannot explain its own throttling.
+- **Push notification of new operations**, so peers do not wait out the poll interval.
+- **Delta-encoded operation ranges** rather than whole-operation batches.
+- **Prioritising which deferred content to fetch first** when the budget is capped.
+  Today the order is whatever `missing_chunk_hashes` returns, not what a user is likely
+  to want next.
+
+### Encryption
+
+- **Per-recipient key envelopes**, so replicas need not share one repository key.
+  `crypto::envelope` seals and opens already; the write path does not use it.
+- **Encrypted names and directory structure**, which are in the clear today. This is the
+  larger change of the two, because it breaks the S3 facade's key mapping.
+- **Key rotation and re-encryption** of content already written.
+
+### Proofs
+
+- **Compressed proof batches.** `prove_many` shares one traversal but still sends every
+  path in full; overlapping paths could share their upper steps.
+- **A proving system**, which needs a circuit-friendly hash and is research rather than
+  engineering. See "Deliberately Not Built".
+
+### Performance
+
+- **An incremental Merkle tree.** The inode map is maintained rather than walked, but
+  the commitment over it is still rebuilt per apply — linear work for a one-entry
+  change. Weigh it against the fact that an apply is fsync-bound.
+- **Cached directory maps.** `resolve_path` re-reads and re-materializes each directory
+  once per path component.
+
+### Storage Maintenance
+
+- **Collect orphaned inode and directory records**, not only blobs. Collection reclaims
   content but leaves the KV entries of unlinked inodes behind.
-- Per-recipient key envelopes, so replicas need not share one repository key.
-- Fetch deferred content on demand at read time, so a metadata-only node can serve a file
-  the moment it is actually asked for.
+- **Compaction policy**, which does not exist in any form.
 
-### Security and Verification Backlog
+### Product Surface
 
-- Add key-envelope handling to real read and write flows, so peers need not share a key.
-- Improve trust management beyond development-style bootstrap behavior.
-- Commitment-oriented proof systems (M7), replacing transparent bundles where useful.
+- **A mountable interface.** POSIX/FUSE is not a debt — M2 asked for one facade and the
+  S3 one shipped — so this is new scope. WebDAV reaches the same user-visible outcome
+  without a kernel extension and is testable in CI.
+- **SigV4 request signing** for the S3 facade, or documenting loopback-only as the
+  supported deployment.
+- **Multipart upload**, for objects too large to buffer in one request.
 
-### Product Surface Backlog
+### Tests
 
-- Implement the POSIX/FUSE facade.
-- Add operational tooling such as migration and maintenance commands.
-
-### Systems Backlog
-
-- Batch storage writes: the sled backend currently flushes on every put, costing an
-  fsync per chunk.
-- Cache directory maps rather than re-reading and re-materializing per path component.
-- Add compaction, cleanup, and garbage collection for unreferenced inodes and blobs.
-- Add broader integration tests between daemon instances.
+- Cross-node integration tests beyond the two-node script.
+- Restart and crash-recovery tests.
+- Transport failure and retry tests.
 
 ## Practical Reading Of The Current Milestone
 
@@ -464,44 +579,22 @@ path shape does not support.
   move the commitment to something like Poseidon and change the state root again. That
   is its own milestone-sized risk, and a stub resembling a circuit would be worse than
   an honest commitment layer.
-- **Absence proofs.** The sorted leaf layout supports proving the two entries that
-  bracket a gap; nothing needs it yet.
 - **Persisted telemetry snapshots** (M5). A power reading from before a restart
-  describes a machine that may since have been unplugged.
-
-### The Maintained Inode Map
-
-The state root commits to a flat map of inode to object hash. That map used to be
-rebuilt by walking the whole tree on every applied operation — materializing, encoding
-and hashing every directory to enumerate what was reachable, work proportional to the
-filesystem rather than to the change.
-
-It is now maintained. A directory's hash depends only on its own entries and attributes,
-not on its children, so changing one inode changes exactly one map entry. Creates and
-writes patch the entries they touch; removals and renames fall back to a full walk,
-because they can change *which* inodes are reachable and there is no cheap bound on how
-many.
-
-Reachability is the part that has to be exact, and it is answered two ways: a reachable
-directory always carries a map entry, so membership settles it; a file may legitimately
-have none — it has no content yet — so it is answered through the parent recorded when
-it was created, confirming the parent still lists it. An operation applied inside a
-directory that has since been unlinked therefore adds nothing.
-
-Measured at a thousand entries: the state root fell from 3.66ms to 1.04ms. End-to-end an
-apply improved about 6%, because an apply is now dominated by its single fsync rather
-than by computation. The remaining cost is still linear — the Merkle tree is rebuilt from
-the map each time — so an incremental tree, updating one leaf in O(log n), is the next
-layer rather than something this change delivered.
-
-Correctness is pinned by an invariant suite that re-derives the map with a full walk
-after every kind of operation and demands equality, since a wrong entry is not a stale
-cache but two replicas disagreeing about what the filesystem is.
+  describes a machine that may since have been unplugged, moved or cooled. Persisting it
+  would produce a stored value that looks authoritative and is not.
+- **A compile-time switch for the commitment.** The commitment *is* the state root, so a
+  build that computed a different one could never replicate with one that did not.
+  Making it optional would be a convergence hazard dressed as a feature flag.
+- **Convergent encryption.** It would restore deduplication across identical plaintext,
+  at the price of letting anyone holding a candidate file confirm whether a node stores
+  it.
 
 ## Where To Pick This Up
 
-Nothing is outstanding. What follows is new scope, and the two candidates are worth
-weighing rather than picking by order.
+No milestone is unfinished and nothing above is blocked. The backlog is real, though —
+see it above — so this section is about what is worth doing next, not what is owed.
+
+Two candidates are large enough to weigh rather than pick by order.
 
 **A mountable interface — if one is wanted.** Note first that POSIX/FUSE is not a debt:
 M2 asked for *one* user-facing facade, named POSIX and S3 as alternatives, and the S3 one
@@ -528,6 +621,8 @@ that touched one entry. Weigh it against the fact that an apply is currently fsy
 so the end-to-end gain would be small.
 
 **Also open, smaller.** Metered-link detection, so the scheduler's link rule can fire in
-the field rather than only in tests. Per-recipient key envelopes, so replicas need not
-share one repository key. Compressed proof batches, where overlapping paths share their
-upper steps.
+the field rather than only in tests — the cheapest of these, and the one that turns a
+tested rule into a working one. Per-recipient key envelopes, so replicas need not share
+one repository key. Compressed proof batches, where overlapping paths share their upper
+steps. Surfacing the energy budget in `nexusfs status`, so a node without the admin
+feature can explain its own throttling.

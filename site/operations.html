@@ -37,9 +37,11 @@
             <p class="eyebrow">Operations</p>
             <h1>Built for practical deployment, even early.</h1>
             <p class="lede">
-              NexusFS is meant to be operable as a single local process first, then
-              expanded into a networked system with stronger replication, security, and
-              scheduling policies over time.
+              One process, one store, one exclusive lock — which is the fact that shapes
+              everything below. Maintenance that changes state lives at the CLI because
+              the daemon holds the store; the console is read-only by design, and the
+              audit and collection surveys are the two panels that run on a button rather
+              than on refresh.
             </p>
           </div>
         </section>
@@ -69,10 +71,21 @@
               </p>
             </article>
             <article class="feature-card">
-              <h3>Evolution Path</h3>
+              <h3>Maintenance Commands</h3>
               <p>
-                The codebase is staged to keep every milestone runnable while new
-                transport, proof, and facade features arrive incrementally.
+                <code>verify</code> audits every signature and reads every file back,
+                <code>gc</code> surveys unreachable storage and only deletes with
+                <code>--apply</code>, <code>migrate</code> upgrades the on-disk format,
+                and <code>peer</code> enrols keys before first contact.
+              </p>
+            </article>
+            <article class="feature-card">
+              <h3>Two Trust Lists</h3>
+              <p>
+                <code>/api/peers</code> lists sync <em>targets</em> and how they are
+                doing; <code>/api/peers/enrolled</code> lists <em>trusted keys</em>. The
+                mismatch between them is what to look at when replication is silently
+                doing nothing.
               </p>
             </article>
           </div>
@@ -86,6 +99,17 @@
               <li>Run focused crate tests during implementation.</li>
               <li>Validate the workspace before pushing milestone changes.</li>
               <li>Keep public docs and deep specs aligned as behavior changes.</li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="section reveal">
+          <div class="content-panel">
+            <h2>Not covered yet</h2>
+            <ul class="list-block">
+              <li>Backup and restore beyond copying the data directory with the daemon stopped.</li>
+              <li>Compaction of the underlying database, and collection of orphaned inode records.</li>
+              <li>Reading the energy budget without the admin feature compiled in.</li>
             </ul>
           </div>
         </section>

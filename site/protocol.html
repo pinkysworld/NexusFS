@@ -52,7 +52,9 @@
             </article>
             <article class="feature-card">
               <h3>Clock Summary</h3>
-              <p>Each side advertises the highest observed operation counters by device.</p>
+              <p>Each side advertises the highest observed operation counters by device —
+                plus the counters observed above a gap, so one refused operation cannot
+                stall everything behind it.</p>
             </article>
             <article class="feature-card">
               <h3>Ops Batch</h3>
@@ -60,7 +62,18 @@
             </article>
             <article class="feature-card">
               <h3>Blob Fetch</h3>
-              <p>Referenced chunk data is requested only when the receiving side needs it.</p>
+              <p>Referenced chunk data is requested only when the receiving side needs it
+                — and anything it did not request is dropped, however well it hashes.</p>
+            </article>
+            <article class="feature-card">
+              <h3>Budgeted Passes</h3>
+              <p>The energy scheduler can cap or skip content. A node that took every
+                operation and no bytes still knows what exists and where.</p>
+            </article>
+            <article class="feature-card">
+              <h3>On-Demand Fetch</h3>
+              <p>Reading a deferred file pulls exactly what that read needs, rather than
+                waiting for the next unconstrained pass.</p>
             </article>
           </div>
         </section>
@@ -69,8 +82,10 @@
           <div class="content-panel">
             <h2>Verification pipeline</h2>
             <ul class="list-block">
-              <li>Verify the operation signature.</li>
-              <li>Check referenced object and blob hashes.</li>
+              <li>Verify the operation signature, through the same apply path local writes use.</li>
+              <li>Check the peer's device key against the one pinned for it.</li>
+              <li>Check referenced object and blob hashes against what was requested.</li>
+              <li>Drop content that was never requested, however well it hashes.</li>
               <li>Apply policy checks before accepting state.</li>
               <li>Validate the configured proof mode when enabled.</li>
               <li>Store and apply the operation idempotently.</li>

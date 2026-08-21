@@ -31,10 +31,13 @@ formats, and enrolling peer keys without depending on trust-on-first-use. The st
 is a Merkle commitment, so any single entry can be proved to someone holding no
 filesystem — `nexusfs prove` emits such a proof and `nexusfs check-proof` verifies one
 without opening a repository. Absence is provable too, so an inclusion proof against an
-old root and an absence proof against a new one demonstrate a deletion.
+old root and an absence proof against a new one demonstrate a deletion. And a node that
+skipped content to save power fetches it on demand when someone actually reads, rather
+than waiting for the next unconstrained pass.
 
 **Still unimplemented:** the POSIX/FUSE facade, per-recipient key envelopes (replicas
-share one repository key), metered-link detection, and zero-knowledge proving. The
+share one repository key), metered-link detection, an incremental Merkle tree, and
+zero-knowledge proving. None of it blocks what shipped; see [Backlog](./backlog.md). The
 commitment layer is deliberately not zero-knowledge: a verifier learns the entry being
 proved, just not the rest of the tree. `zk_full` is accepted as a config value and
 behaves as `none` rather than pretending to prove anything.

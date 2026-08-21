@@ -37,10 +37,11 @@
             <p class="eyebrow">Backlog</p>
             <h1>Prioritized by what unlocks the next milestone.</h1>
             <p class="lede">
-              The backlog is grouped by execution order, not just by subsystem. With the
-              local core, the S3 facade, verified replication, encryption and
-              energy-aware scheduling all in place, the focus moves to operational
-              hardening and closing the gaps those milestones opened.
+              All eight milestones are complete, so nothing here is owed — the backlog is
+              what would make NexusFS reach further, not what would make it correct. It
+              is grouped by execution order rather than by subsystem, and the cheapest
+              item at the top is also the one that turns a tested rule into a working
+              one.
             </p>
           </div>
         </section>
@@ -49,15 +50,18 @@
           <div class="card-grid">
             <article class="feature-card">
               <h3>Now</h3>
-              <p>Close the energy follow-ups: on-demand fetch of deferred content, and metered-link detection.</p>
+              <p>Metered-link detection, so the scheduler rule that defers content on a
+                metered connection can fire outside a test.</p>
             </article>
             <article class="feature-card">
               <h3>Next</h3>
-              <p>Incremental snapshots, batched storage writes, and collecting orphaned inode records.</p>
+              <p>Per-recipient key envelopes, so replicas need not share one repository
+                key, and collecting orphaned inode records rather than only blobs.</p>
             </article>
             <article class="feature-card">
               <h3>Later</h3>
-              <p>The POSIX facade, per-recipient key envelopes, and push notification of new operations.</p>
+              <p>A mountable interface, an incremental Merkle tree, and push notification
+                so peers do not wait out the poll interval.</p>
             </article>
             <article class="feature-card">
               <h3>Research</h3>
@@ -70,19 +74,21 @@
           <div class="content-panel">
             <h2>Highest-priority backlog</h2>
             <ul class="list-block">
-              <li>Fetch deferred content on demand, so a power-constrained node can still serve a file when asked</li>
               <li>Detect metered links per platform, so that scheduler rule can fire in the field</li>
-              <li>Push notification of new operations, so peers do not wait for the poll interval</li>
               <li>Per-recipient key envelopes, so replicas need not share one repository key</li>
+              <li>Push notification of new operations, so peers do not wait for the poll interval</li>
+              <li>Prioritise which deferred content to fetch first under a capped budget</li>
+              <li>Surface the energy budget in <code>status</code>, not only over the admin API</li>
             </ul>
           </div>
           <div class="content-panel">
-            <h2>Next unlocks</h2>
+            <h2>Recently cleared</h2>
             <ul class="list-block">
-              <li>Batch storage writes — sled currently fsyncs on every chunk</li>
-              <li>Rebuild snapshots incrementally rather than walking the whole path</li>
-              <li>Prioritise which deferred content to fetch first under a capped budget</li>
-              <li>Implement the POSIX/FUSE facade</li>
+              <li>On-demand fetch — a deferred file is fetched when someone reads it</li>
+              <li>Incremental snapshots — the inode map is maintained, not re-walked</li>
+              <li>One fsync per operation, not two for the same database</li>
+              <li>Absence proofs, and the forged-length attacks they must refuse</li>
+              <li>Peer enrolment, format migration, and garbage collection</li>
             </ul>
           </div>
         </section>

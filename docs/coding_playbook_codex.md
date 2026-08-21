@@ -1,5 +1,14 @@
 # Codex Implementation Playbook (Detailed)
 
+> **Complete — kept for history.** Every task group below is implemented. The milestone
+> numbering here is the original sketch's and does not match what was delivered; see
+> [`../documentation/roadmap.md`](../documentation/roadmap.md) for the plan as built and
+> [`../documentation/current-status.md`](../documentation/current-status.md) for what is
+> in the repository now.
+>
+> The working conventions in section 0 are still the ones the project follows, and the
+> quality gates in section 8 are what CI runs.
+
 This playbook is written as a **checklist of coding tasks** with explicit "Definition of Done"
 to reduce ambiguity for an automated coding agent.
 

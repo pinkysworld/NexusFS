@@ -14,8 +14,10 @@ single binary.
 > or the link is metered. Operators get **garbage collection, format versioning and
 > explicit peer enrolment**, and the state root is now a **Merkle commitment** whose
 > entries can be proved individually — including proving that one is **absent**, which
-> makes a deletion demonstrable. The POSIX/FUSE facade is **not implemented yet**, and
-> the commitment layer is **not zero-knowledge** — see below. Full detail in
+> makes a deletion demonstrable. A node that skipped content to save power **fetches it
+> on demand** when someone reads. The POSIX/FUSE facade is **not implemented yet**, and
+> the commitment layer is **not zero-knowledge** — see below. 167 tests, clippy clean,
+> every feature combination built in CI. Full detail in
 > [`documentation/current-status.md`](documentation/current-status.md).
 
 ## Try it in your browser
@@ -29,6 +31,7 @@ differing only in storage backend. Nothing is installed and nothing leaves the p
 
 The repository also includes:
 - Message schema + protocol spec (`docs/protocol.md`)
+- Configuration reference (`docs/config.md`) and admin API reference (`docs/admin_api.md`)
 - Threat model (`docs/threat_model.md`)
 - Architecture blueprint (`docs/architecture.md`)
 - Research tracks beyond R01–R20 (`docs/research_tracks.md`)
@@ -111,6 +114,11 @@ same apply path local writes use.
 Peer identity is an ed25519 key pinned on first use — TLS provides transport encryption
 only, and certificates are not the trust anchor. A device presenting a different key
 than the one pinned is refused. Set `net.tofu = false` to require explicit enrolment.
+
+A peer's answer is also not permission to store. Content that was never requested is
+dropped even when it hashes correctly: self-consistency is not the same as having been
+asked for, and without that check a trusted-but-hostile peer could write arbitrary blobs
+into the content-addressed store while every one of them counted as progress.
 
 ---
 
@@ -240,6 +248,12 @@ Pass `--root` with a root you obtained independently. Without it, the proof is c
 against the root recorded *inside itself*, which confirms internal consistency and
 nothing about whether that state is one anyone else agrees with — the command says so
 rather than printing a bare "valid". `/api/fs/proof?path=` serves the same structure.
+
+The output separates two things that look alike. `subject` is the inode the **proof**
+commits to. The `path`, `inode` and `issuer` lines below it are labels the file carries
+and the proof does not cover — anyone can edit them — so they are printed as unverified,
+and a warning appears when one disagrees with the proof's actual subject. Relabelling a
+genuine proof to name a different file is exactly the attack that separation defeats.
 
 Turning it on for operations:
 
@@ -401,7 +415,12 @@ Defaults for the `nexusfs` binary are `admin` only; the rest are opt-in.
 - `quic`  (off by default): QUIC transport + peer replication
 - `s3`    (off by default): S3-compatible HTTP API
 - `posix` (off by default): FUSE mount stubs (OS-dependent)
-- `zk`    (off by default): ZK scaffolding (proof traits + placeholder circuits)
+- `zk`    (off by default): the research placeholders. Note that the Merkle commitment
+  and its proofs are **not** behind this flag — the commitment is the state root, so a
+  build that computed a different one could never replicate with one that did not
+
+Every combination of these is built in CI with warnings denied, because a `cfg` on a type
+and a `cfg` on its construction site drift apart silently otherwise.
 
 The `nexusfs-storage` crate defaults to `sled`; `rocksdb` is an off-by-default
 alternative and is currently a stub.
@@ -453,12 +472,17 @@ version and the build's absolute paths both end up inside the binary.
 
 ## Where to start coding
 
-Read and follow:
+Start with what is *not* built —
+[`documentation/backlog.md`](documentation/backlog.md) ranks it, and
+[`CONTRIBUTING.md`](CONTRIBUTING.md) has the gates and the invariants to preserve.
 
-- `docs/coding_playbook_codex.md`  ← step-by-step implementation tasks
+Then the specs:
+
 - `docs/protocol.md`              ← replication protocol, message framing, auth
 - `docs/threat_model.md`          ← attacker types & mitigations to preserve
 - `docs/architecture.md`          ← module responsibilities and invariants
+- `docs/coding_playbook_codex.md` ← the original build checklist, now complete; kept for
+                                    the working conventions and quality gates
 
 Additional specs:
 - `docs/object_formats.md`
@@ -485,8 +509,8 @@ Public-facing project material:
 - `crates/admin`      : embedded admin console backend + static UI assets
 - `crates/energy`     : device telemetry + the rule-based replication scheduler
 - `crates/privacy`    : padding + cover traffic (stubs)
-- `crates/zk`         : proof traits, transparent proof bundles, ZK placeholders
-- `crates/s3`         : S3-like API surface (stubs)
+- `crates/zk`         : the Merkle state commitment, inclusion and absence proofs, transparent proof bundles
+- `crates/s3`         : S3-compatible facade (objects, buckets, ListObjectsV2)
 - `crates/fs_posix`   : FUSE mount surface (stubs)
 - `crates/wasm`       : browser build of the core, powering the playground
 - `documentation`     : public markdown documentation hub

@@ -45,8 +45,10 @@
               transfers to the device's power, heat and link cost, operators can reclaim
               storage, upgrade across on-disk formats and enrol peer keys ahead of first
               contact, and the state root is a Merkle commitment whose entries can be
-              proved present or proved absent. The POSIX facade and a real proving system
-              are still in the backlog, and named as such rather than implied.
+              proved present or proved absent, and a node that skipped content to save
+              power fetches it on demand when someone reads. 167 tests, clippy clean,
+              every feature combination built in CI. The POSIX facade and a real proving
+              system are still in the backlog, and named as such rather than implied.
             </p>
           </div>
         </section>
@@ -71,8 +73,9 @@
             <article class="feature-card">
               <h3>Present as scaffolding</h3>
               <p>
-                POSIX/FUSE, privacy and ZK crates exist, but remain placeholders or
-                partially wired layers.
+                The POSIX/FUSE and privacy crates are stubs. The ZK crate is not — it
+                holds the commitment and the proofs; what it does not hold is a proving
+                system.
               </p>
             </article>
             <article class="feature-card">
@@ -94,8 +97,16 @@
             <article class="feature-card">
               <h3>Highest-value backlog</h3>
               <p>
-                Fetching deferred content on demand, so a node that skipped the bytes to
-                save power can still serve a file the moment it is asked for.
+                Metered-link detection. The scheduler already defers content on a metered
+                link; nothing reports one, so the rule cannot fire in the field.
+              </p>
+            </article>
+            <article class="feature-card">
+              <h3>Verified, not asserted</h3>
+              <p>
+                Content a peer was never asked for is dropped even when it hashes
+                correctly, and <code>check-proof</code> reports the inode the proof
+                commits to rather than the labels the file carries.
               </p>
             </article>
           </div>
@@ -122,17 +133,18 @@
               <li>Garbage collection, an enforced format version, and peer enrolment</li>
               <li>Merkle state commitments with proofs anyone can check offline</li>
               <li>Absence proofs, so a deletion is demonstrable</li>
+              <li>On-demand fetch of content a constrained node deferred</li>
+              <li>A maintained inode map, so a one-entry change is not a whole-tree walk</li>
             </ul>
           </div>
           <div class="content-panel">
             <h2>Still in backlog</h2>
             <ul class="list-block">
-              <li>POSIX/FUSE facade</li>
-              <li>On-demand fetch of content a constrained node deferred</li>
               <li>Metered-link detection, so that scheduler rule can fire in the field</li>
               <li>Per-recipient key envelopes, so replicas need not share one key</li>
               <li>Collecting orphaned inode records, not only unreachable blobs</li>
-              <li>Incremental snapshots — the largest remaining win, by measurement</li>
+              <li>An incremental Merkle tree — the map is maintained, the tree is not</li>
+              <li>A mountable interface, which is new scope rather than a debt</li>
               <li>A real proving system, which needs a circuit-friendly hash</li>
             </ul>
           </div>

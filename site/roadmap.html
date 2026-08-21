@@ -37,8 +37,10 @@
             <p class="eyebrow">Roadmap</p>
             <h1>Every milestone stays runnable.</h1>
             <p class="lede">
-              NexusFS is staged as a vertical-slice project so the repository remains a
-              usable system at each step, not a pile of disconnected prototypes.
+              NexusFS was staged as a vertical-slice project so the repository stayed a
+              usable system at each step, not a pile of disconnected prototypes. All
+              eight milestones are complete. What follows is ordinary product work, and
+              it should be picked by value rather than by sequence.
             </p>
           </div>
         </section>
@@ -49,17 +51,33 @@
 
         <section class="section reveal">
           <div class="content-panel">
-            <h2>Execution order</h2>
+            <h2>The order it was built in</h2>
             <ul class="list-block">
-              <li>Finish M1 by completing persistent local namespace state.</li>
-              <li>Ship one real external facade in M2.</li>
-              <li>Complete peer replication in M3.</li>
-              <li>Layer in encryption and transparent proofs in M4.</li>
-              <li>Make replication adapt to power, heat and link cost in M5.</li>
-              <li>Give operators collection, versioning and enrolment in M6.</li>
-              <li>Make single facts about state provable in M7, without overclaiming.</li>
-              <li>Extend that to absence in M8, so a deletion is demonstrable.</li>
-              <li>Leave a real proving system behind its own milestone.</li>
+              <li>M1 completed persistent local namespace state.</li>
+              <li>M2 shipped one real external facade.</li>
+              <li>M3 completed peer replication.</li>
+              <li>M4 layered in encryption and transparent proofs.</li>
+              <li>M5 made replication adapt to power, heat and link cost.</li>
+              <li>M6 gave operators collection, versioning and enrolment.</li>
+              <li>M7 made single facts about state provable, without overclaiming.</li>
+              <li>M8 extended that to absence, so a deletion is demonstrable.</li>
+              <li>A real proving system stays behind its own milestone.</li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="section reveal">
+          <div class="content-panel">
+            <h2>What would come next</h2>
+            <ul class="list-block">
+              <li>Detect metered links per platform, so the scheduler rule that defers
+                content on a metered connection can fire outside a test.</li>
+              <li>Wire per-recipient key envelopes into the write path, so replicas need
+                not share one repository key.</li>
+              <li>Decide whether a mountable interface is wanted — and if so, pick WebDAV
+                or FUSE on the merits rather than by default.</li>
+              <li>Make the Merkle tree incremental, if measurement says the rebuild has
+                become the bottleneck it is not yet.</li>
             </ul>
           </div>
         </section>

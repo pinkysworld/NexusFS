@@ -22,9 +22,12 @@ NexusFS is built as a set of Rust crates that preserve clean boundaries between 
 - `crates/admin`: embedded admin HTTP surface and static assets
 - `crates/energy`: device telemetry sampling and the replication budget scheduler
 - `crates/privacy`: padding and cover-traffic scaffolding
-- `crates/zk`: transparent proof bundles and future ZK modes
+- `crates/zk`: the Merkle state commitment, inclusion and absence proofs, and transparent
+  proof bundles. Not a proving system — see the security page for what that distinction
+  buys and costs
 - `crates/s3`: S3-like API facade
-- `crates/fs_posix`: POSIX/FUSE facade
+- `crates/fs_posix`: POSIX/FUSE facade (stub)
+- `crates/wasm`: the same core compiled for the browser, powering the playground
 
 ## Architectural Invariants
 
@@ -34,6 +37,9 @@ NexusFS is built as a set of Rust crates that preserve clean boundaries between 
 4. Replication must be safe to replay.
 5. Remote state is accepted only after verification.
 6. Policy and privacy modes must be explicit and versioned.
+7. Durability sits at the operation boundary, not the record boundary — half an
+   operation surviving a crash is a guarantee nobody wants.
+8. Content is stored only when it was asked for, whether it hashes correctly or not.
 
 ## Data Model
 
@@ -43,6 +49,8 @@ NexusFS separates immutable content from mutable references:
 - file and directory objects commit to chunk layout and namespace state
 - snapshots commit to a filesystem view
 - mutable heads and oplog indexes live in the KV layer
+- the state root is a Merkle commitment over a maintained inode map, so a single entry
+  can be proved without handing over the filesystem
 
 ## Why This Shape?
 

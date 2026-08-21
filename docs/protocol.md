@@ -5,8 +5,16 @@ This protocol runs over **QUIC** (Quinn). It is designed to be:
 - secure by default (auth + integrity)
 - extensible for research features (ZK proofs, privacy-preserving discovery, DTN routing)
 
-> This is a v0 draft aimed at getting a working system quickly. Later versions can add
-> compression, streaming blob transfer, range requests, and advanced summaries.
+> This began as a v0 draft. The implementation now runs at `PROTOCOL_VERSION = 2`
+> (`crates/net/src/replication.rs`) — version 2 came with the Merkle state commitment,
+> so a mismatched peer refuses the handshake rather than syncing and then disagreeing
+> forever. Still to come: compression, streaming blob transfer, range requests, and
+> compressed proof batches.
+>
+> Two properties the draft does not state and the implementation enforces: the clock
+> summary carries the counters observed *above* a gap as well as the contiguous high
+> water mark, so one refused operation cannot stall everything behind it; and content
+> that was never requested is dropped on receipt, however well it hashes.
 
 ---
 
@@ -33,7 +41,7 @@ payload := postcard(MessageEnvelope)
 
 ```rust
 struct MessageEnvelope {
-  protocol_version: u16,      // start at 1
+  protocol_version: u16,      // currently 2
   msg_id: u64,                // per-connection monotonic id
   reply_to: Option<u64>,      // for request/response matching
   payload: Msg,               // enum
