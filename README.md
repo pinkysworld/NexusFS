@@ -16,7 +16,7 @@ single binary.
 > entries can be proved individually — including proving that one is **absent**, which
 > makes a deletion demonstrable. A node that skipped content to save power **fetches it
 > on demand** when someone reads. The POSIX/FUSE facade is **not implemented yet**, and
-> the commitment layer is **not zero-knowledge** — see below. 167 tests, clippy clean,
+> the commitment layer is **not zero-knowledge** — see below. 200 tests, clippy clean,
 > every feature combination built in CI. Full detail in
 > [`documentation/current-status.md`](documentation/current-status.md).
 
@@ -331,6 +331,7 @@ far better degraded state than falling behind entirely, and it costs almost noth
 | Battery at or below the critical threshold | no | no |
 | Temperature at or above `temp_high_c` | yes | deferred |
 | Link is metered | yes | deferred |
+| Free disk at or below `storage_reserve_mb` | yes | deferred |
 
 Heat and metered links override the battery grade rather than folding into it: no amount
 of remaining charge makes cooking the device acceptable, and a metered link costs money
@@ -370,12 +371,28 @@ Throughout, an unreadable or absent source reports `unknown`, never `unmetered`.
 scheduler treats the two identically — neither constrains anything — but only one of
 them is a fact, and reporting a guess as a fact is how a console starts lying.
 
+**Link cost is detected, partially and honestly.** Linux asks NetworkManager and gets a
+real answer both ways, cellular guess included. macOS recognises a phone tethered over
+USB and nothing else — a Wi-Fi hotspot is indistinguishable from home broadband, and
+inferring it from the network's name would be a heuristic dressed up as a reading. A VPN
+defeats detection everywhere, because the default route names the tunnel and the cost
+belongs to the link underneath. So `energy.link_cost` states the answer outright —
+`auto`, `metered`, `unmetered`, `unknown` — and skips detection when set: someone on a
+satellite uplink should not wait for a probe to be written for their platform.
+
+**Disk is a wall, not a tradeoff.** The others are things the ladder weighs; bytes
+cannot be stored where there is no room. `energy.storage_reserve_mb` (default 1024) is a
+floor replication will not cross — the last gigabyte belongs to whatever the machine is
+actually for — and free space is read for the filesystem holding the *store*, not for
+`/`.
+
 **Unknown never means constrained.** A server with no battery sensor reports `unknown`
 and runs unthrottled. Treating a missing sensor as an empty battery would make an
 unconstrained machine throttle itself permanently — the obvious failure mode of a naive
 implementation, and the reason every reading is a three-state enum rather than a `bool`.
 
-Inspect the live decision, including why it was made:
+Inspect the live decision, including why it was made — `nexusfs status` prints it too,
+which is the only route on a build without the admin feature:
 
 ```bash
 curl -H "x-nexusfs-token: $TOKEN" http://127.0.0.1:7070/api/energy

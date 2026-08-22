@@ -20,7 +20,7 @@ A node that skipped content to save power fetches it on demand when someone read
 rather than waiting for the next unconstrained pass.
 
 Not yet implemented: the POSIX/FUSE facade, and zero-knowledge proving — the commitment
-layer is deliberately not that, for reasons recorded below. 167 tests pass, clippy is
+layer is deliberately not that, for reasons recorded below. 200 tests pass, clippy is
 clean, and every feature combination of the binary is built in CI.
 
 ## Implemented Now
@@ -229,6 +229,23 @@ Heat and metered links override the battery grade rather than being folded into 
 amount of remaining charge makes sustained transfer on a hot device acceptable, and a
 metered link costs money per byte regardless of power.
 
+Free space is a different kind of reading again, and is applied differently. The others
+are tradeoffs the ladder weighs; disk is a wall, because bytes cannot be stored where
+there is no room. It therefore narrows whatever the ladder decided and never widens it.
+`energy.storage_reserve_mb` (default 1024) is a floor rather than a threshold —
+replication is a background job filling someone else's disk, and the last gigabyte
+belongs to whatever the machine is actually for. Content is held to the room above the
+reserve and stops entirely at it, while operations keep flowing.
+
+It is also the only reading about a *path* rather than a machine: a node with its store
+on an external volume cares about that volume, and `df` is asked about the data
+directory rather than the root. An unreadable answer is unknown and constrains nothing.
+
+The cap is always explained, even when it is generous. An earlier draft stayed silent
+when the room was ample, on the grounds that a 216GB ceiling binds no real pass — which
+produced a budget carrying a 216GB cap while reporting "no constraints apply". A number
+disagreeing with its own explanation is how a console stops being trusted.
+
 Every reading is a three-state enum rather than a boolean, and unknown always means
 unconstrained. A server with no battery sensor is not a device at 0% charge; conflating
 the two would make an unconstrained machine throttle itself permanently.
@@ -239,6 +256,12 @@ caches it, so the console explains the pass that actually ran rather than a fres
 that could contradict it.
 
 Set `energy.enabled = false` to remove every limit while keeping the reading visible.
+
+`nexusfs status` prints the same reading and budget. That matters most on the build
+least likely to have the admin feature compiled in — a constrained device, which is also
+the one most likely to be throttling — and it reports even when scheduling is switched
+off, because "nothing is throttling this" and "throttling is disabled" are different
+answers.
 
 ### Operator Tooling
 
@@ -449,6 +472,14 @@ its construction site had drifted apart, so a replication-only build did not com
 invisible because CI built two combinations out of seven. It now builds all of them with
 warnings denied.
 
+**A daemon that starts in silence cannot be operated.** `EnvFilter::from_default_env()`
+resolves to ERROR only when `RUST_LOG` is unset, so every `info!` and `warn!` in the
+workspace was dead by default: no "admin listening on", no "replication enabled", and no
+warning that trust-on-first-use would pin whichever key connected first. That last one is
+what made it a bug rather than a preference — a security notice nobody can read is not a
+notice. The filter now falls back to `info`, and `RUST_LOG` still wins in both
+directions.
+
 ### Browser Playground
 
 `crates/wasm` compiles the core to `wasm32-unknown-unknown` against the in-memory
@@ -464,7 +495,7 @@ daemon uses between real nodes.
 
 ### Test Coverage
 
-182 tests, including order-independent convergence (the same operation set applied in
+200 tests, including order-independent convergence (the same operation set applied in
 different orders yields an identical state root), idempotent re-apply, pending-op drain,
 concurrent-create conflict naming, concurrent-write resolution, rename-vs-unlink,
 subtree-cycle refusal, restart persistence, S3 key mapping and pagination, and
@@ -509,7 +540,6 @@ unknown rather than unmetered, and that a stated `link_cost` is used verbatim.
 - Link-cost detection covers Linux via NetworkManager and, on macOS, only a phone
   tethered over USB. A Wi-Fi hotspot reads as unknown, and a VPN hides the link on every
   platform. `energy.link_cost` is the way to state what a probe cannot see.
-- `Telemetry` carries a storage-headroom field that nothing populates.
 - `crates/fs_posix` and `crates/privacy` are stubs. `crates/zk` is not — it holds the
   Merkle commitment, the proofs and the transparent bundles; what it does not hold is a
   proving system.
@@ -525,10 +555,6 @@ not built, grouped by what they would buy.
   identical to home broadband, and a VPN hides the link beneath it on every platform.
   `energy.link_cost` exists to work around both; closing them properly needs more than a
   default-route lookup.
-- **Storage headroom.** `Telemetry` carries the field and no platform fills it, so the
-  scheduler cannot yet refuse to fill a nearly full disk.
-- **The budget in `nexusfs status`.** It is visible at `/api/energy` and nowhere else,
-  which means a node without the admin feature cannot explain its own throttling.
 - **Push notification of new operations**, so peers do not wait out the poll interval.
 - **Delta-encoded operation ranges** rather than whole-operation batches.
 - **Prioritising which deferred content to fetch first** when the budget is capped.

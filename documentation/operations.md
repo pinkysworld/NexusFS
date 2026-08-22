@@ -75,6 +75,12 @@ parked write would otherwise produce.
 threshold 20%" distinguishes a deliberate throttle from a broken peer. Peers also report
 `content_deferred`, which separates "up to date" from "namespace current, bytes pending".
 
+`nexusfs status` prints the same reading and budget, which is the only route on a build
+without the admin feature — and that is the build most likely to be running on a device
+that throttles. It reports even when scheduling is switched off, because "nothing is
+throttling this" and "throttling is disabled" are different answers to the same
+question.
+
 Note that the embedded database takes an exclusive lock, so the `status` CLI command
 cannot run while the daemon holds the store. Query the running daemon instead.
 
@@ -82,7 +88,7 @@ cannot run while the daemon holds the store. Query the running daemon instead.
 
 | Command | Purpose |
 | --- | --- |
-| `nexusfs status` | head, state root, operation and pending counts, blob totals |
+| `nexusfs status` | head, state root, operation and pending counts, blob totals, and the current power reading with the replication budget it produced |
 | `nexusfs verify` | every signature and proof, and a read of every file |
 | `nexusfs gc` | survey unreachable storage; `--apply` to reclaim it |
 | `nexusfs migrate` | upgrade the on-disk format |
@@ -162,6 +168,5 @@ this guide still cannot tell you how to do:
   directory while the daemon is stopped, and no tested restore path.
 - **Storage compaction.** `gc` reclaims unreachable blobs; nothing compacts the
   underlying database, and orphaned inode and directory records are left behind.
-- **Reading the energy budget without the admin feature.** `/api/energy` is the only
-  place the decision is visible, so a build without `admin` cannot explain its own
-  throttling.
+- **Closing the two gaps `energy.link_cost` works around.** Detection cannot see a Wi-Fi
+  hotspot on macOS, or through a VPN to the link beneath it.

@@ -75,6 +75,12 @@ unless you have another layer in front of it.
   A VPN defeats it everywhere, because the default route names the tunnel and the cost
   belongs to the link underneath. State the value explicitly where detection cannot see
   your situation; an operator knows their plan better than a probe does.
+- `storage_reserve_mb`: megabytes of free space to leave alone on the filesystem holding
+  `data_dir`. Default 1024. Not a throttle threshold but a floor — replication is a
+  background job filling someone else's disk. Content is held to the room above it and
+  stops entirely at it; operations keep flowing, so the node still tracks what exists.
+  Free space is read for the store's filesystem, not for `/`, and an unreadable answer
+  constrains nothing.
 
 Heat and metered links override the battery grade rather than folding into it. Every
 reading is three-state, and **unknown never constrains** — a server with no battery

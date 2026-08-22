@@ -88,17 +88,23 @@ replication is silently doing nothing.
 ## Energy
 
 ### GET `/api/energy`
-The current reading (power source, charge, temperature, CPU load, link cost, sample
-time), the budget it produced (sync, content, byte ceiling, interval multiplier), and a
-`reason` naming the rule that fired.
+The current reading (power source, charge, temperature, CPU load, link cost, free space
+where the store lives, sample time), the budget it produced (sync, content, byte ceiling,
+interval multiplier), and a `reason` naming the rule that fired.
+
+`storage_free_bytes` is `null` when it could not be read, which is not the same as zero —
+the scheduler treats unknown as unconstrained, so rendering it as `0 B` would suggest the
+opposite. `nexusfs status` prints the same decision, which is the only route on a build
+without the admin feature.
 
 The daemon samples once per pass and caches it, so this explains the pass that actually
 ran rather than a fresh reading that could contradict it.
 
 ```json
 {"enabled":true,"power":"battery","battery_pct":14,"temp_c":null,
- "link":"unknown","sync":true,"content":false,"max_content_bytes":0,
- "interval_scale":2.0,"reason":"battery 14% is at or below the low threshold 20%"}
+ "link":"unknown","storage_free_bytes":233692033024,"sync":true,"content":false,
+ "max_content_bytes":0,"interval_scale":2.0,
+ "reason":"battery 14% is at or below the low threshold 20%"}
 ```
 
 ---

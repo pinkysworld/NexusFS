@@ -56,8 +56,8 @@
             </article>
             <article class="feature-card">
               <h3>Next</h3>
-              <p>Per-recipient key envelopes, so replicas need not share one repository
-                key, and collecting orphaned inode records rather than only blobs.</p>
+              <p>Collecting orphaned inode records rather than only blobs, and push
+                notification so peers do not wait out the poll interval.</p>
             </article>
             <article class="feature-card">
               <h3>Later</h3>
@@ -75,17 +75,19 @@
           <div class="content-panel">
             <h2>Highest-priority backlog</h2>
             <ul class="list-block">
-              <li>See through a VPN, and spot a Wi-Fi hotspot on macOS — the link costs detection still cannot read</li>
               <li>Per-recipient key envelopes, so replicas need not share one repository key</li>
+              <li>See through a VPN, and spot a Wi-Fi hotspot on macOS — the link costs detection still cannot read</li>
               <li>Push notification of new operations, so peers do not wait for the poll interval</li>
               <li>Prioritise which deferred content to fetch first under a capped budget</li>
-              <li>Surface the energy budget in <code>status</code>, not only over the admin API</li>
+              <li>Collect orphaned inode records, not only unreachable blobs</li>
             </ul>
           </div>
           <div class="content-panel">
             <h2>Recently cleared</h2>
             <ul class="list-block">
               <li>Metered-link detection, so the scheduler's link rule can fire</li>
+              <li>A storage-headroom floor replication will not cross</li>
+              <li>The energy budget in <code>nexusfs status</code>, not only over HTTP</li>
               <li>On-demand fetch — a deferred file is fetched when someone reads it</li>
               <li>Incremental snapshots — the inode map is maintained, not re-walked</li>
               <li>One fsync per operation, not two for the same database</li>

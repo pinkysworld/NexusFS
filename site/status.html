@@ -46,7 +46,7 @@
               storage, upgrade across on-disk formats and enrol peer keys ahead of first
               contact, and the state root is a Merkle commitment whose entries can be
               proved present or proved absent, and a node that skipped content to save
-              power fetches it on demand when someone reads. 167 tests, clippy clean,
+              power fetches it on demand when someone reads. 200 tests, clippy clean,
               every feature combination built in CI. The POSIX facade and a real proving
               system are still in the backlog, and named as such rather than implied.
             </p>
@@ -97,8 +97,9 @@
             <article class="feature-card">
               <h3>Highest-value backlog</h3>
               <p>
-                Metered-link detection. The scheduler already defers content on a metered
-                link; nothing reports one, so the rule cannot fire in the field.
+                Per-recipient key envelopes, so replicas need not share one repository
+                key. <code>crypto::envelope</code> seals and opens already; the write
+                path does not use it.
               </p>
             </article>
             <article class="feature-card">
@@ -135,6 +136,8 @@
               <li>Absence proofs, so a deletion is demonstrable</li>
               <li>On-demand fetch of content a constrained node deferred</li>
               <li>A maintained inode map, so a one-entry change is not a whole-tree walk</li>
+              <li>Link-cost detection, so the metered rule can fire outside a test</li>
+              <li>A storage-headroom floor replication will not cross</li>
             </ul>
           </div>
           <div class="content-panel">

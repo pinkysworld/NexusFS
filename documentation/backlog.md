@@ -25,6 +25,13 @@ remaining research tracks are named in `./roadmap.md` rather than left implied. 
 
 Since then, and previously listed here as outstanding:
 
+- **Storage headroom.** `Telemetry`'s free-space field is populated from `df` on the
+  filesystem holding the store, and `energy.storage_reserve_mb` is a floor replication
+  will not cross. Content is held to the room above it and stops entirely at it, while
+  operations keep flowing.
+- **The budget in `nexusfs status`.** The reading and the decision it produced, in the
+  one place reachable without the admin feature — which is the build most likely to be
+  running on a device that throttles.
 - **Metered-link detection.** The scheduler's link rule can now fire in the field:
   NetworkManager answers on Linux, macOS recognises a USB phone tether, and
   `energy.link_cost` states the answer outright where a probe cannot see it. Unknown is
@@ -54,8 +61,8 @@ Since then, and previously listed here as outstanding:
 - Close the two gaps `energy.link_cost` exists to work around: a Wi-Fi hotspot on macOS,
   and seeing through a VPN to the link underneath it. Both need more than a default-route
   lookup, which is why they were left to config rather than guessed at.
-- Read storage headroom, which `Telemetry` carries but nothing populates.
-- Consider surfacing the budget in the CLI (`status`), not only over the admin API.
+Storage headroom and the budget in `nexusfs status` are **done** — see "Recently
+Completed" above.
 
 ### Proof Follow-Ups
 
@@ -103,9 +110,10 @@ Peer enrolment out of band is **done**: `nexusfs peer identity|list|add|remove` 
 
 ### Operations And Maintenance
 
-- Add better structured logs and operator diagnostics.
-- Surface the energy budget in `nexusfs status`, so a node built without the admin
-  feature can still explain its own throttling.
+- Add better structured logs and operator diagnostics. One concrete gap closed already:
+  the daemon used to start in complete silence, because an unset `RUST_LOG` resolves to
+  ERROR only — so "admin listening on", "replication enabled" and the trust-on-first-use
+  warning were all invisible by default. The filter now falls back to `info`.
 
 Migration tooling and peer enrolment are **done** — `nexusfs migrate` with an enforced
 on-disk format stamp, and `nexusfs peer` with explicit key enrolment and `--rotate`.
@@ -117,7 +125,7 @@ on-disk format stamp, and `nexusfs peer` with explicit key enrolment and `--rota
 - Add admin API coverage beyond the minimal routes.
 - Add transport failure and retry tests.
 
-The suite is 167 tests today, covering convergence, conflict naming, encryption,
+The suite is 200 tests today, covering convergence, conflict naming, encryption,
 replication over both an in-memory pipe and real QUIC sockets, the scheduler's decision
 table, collection safety, format refusals in both directions, and the Merkle commitment
 including the forgeries an absence proof must refuse.
