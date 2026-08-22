@@ -50,9 +50,9 @@
           <div class="card-grid">
             <article class="feature-card">
               <h3>Now</h3>
-              <p>Per-recipient key envelopes, so replicas need not share one repository
-                key. <code>crypto::envelope</code> already seals and opens; the write
-                path does not use it.</p>
+              <p>Key rotation, so that revoking a recipient means something. Envelopes
+                made access per-device; removing a device does not take back what it
+                already read.</p>
             </article>
             <article class="feature-card">
               <h3>Next</h3>
@@ -75,7 +75,7 @@
           <div class="content-panel">
             <h2>Highest-priority backlog</h2>
             <ul class="list-block">
-              <li>Per-recipient key envelopes, so replicas need not share one repository key</li>
+              <li>Key rotation and re-encryption, without which access cannot be withdrawn</li>
               <li>See through a VPN, and spot a Wi-Fi hotspot on macOS — the link costs detection still cannot read</li>
               <li>Push notification of new operations, so peers do not wait for the poll interval</li>
               <li>Prioritise which deferred content to fetch first under a capped budget</li>
@@ -84,6 +84,7 @@
           <div class="content-panel">
             <h2>Recently cleared</h2>
             <ul class="list-block">
+              <li>Per-recipient key envelopes, so replicas share no repository key</li>
               <li>Metered-link detection, so the scheduler's link rule can fire</li>
               <li>A storage-headroom floor replication will not cross</li>
               <li>Collection of orphaned namespace records, not only blobs</li>

@@ -94,6 +94,7 @@ cannot run while the daemon holds the store. Query the running daemon instead.
 | `nexusfs migrate` | upgrade the on-disk format |
 | `nexusfs peer identity` | this node's device id and public key |
 | `nexusfs peer list/add/remove` | manage which peers are trusted |
+| `nexusfs share` | re-seal existing files to the peers enrolled now; `--apply` to write |
 | `nexusfs prove <path>` | emit a proof that a path holds its current content |
 | `nexusfs check-proof <file>` | verify one, without opening any repository |
 
@@ -148,6 +149,39 @@ Leave `net.tofu = true` only where first contact cannot be intercepted. Otherwis
 false and enrol keys ahead of time: run `nexusfs peer identity` on each node, and give
 the printed command to the other. Changing a known device's key requires `--rotate`, so
 an unexpected key is always noticed rather than silently accepted.
+
+`peer identity` prints two keys. The ed25519 one decides whether a session is accepted;
+the X25519 *sealing* key decides whether that peer can read encrypted content. `peer add`
+takes both. A peer enrolled with only the first replicates and verifies normally and is
+simply not a recipient — `peer list` and the console both say so rather than leaving a
+blank.
+
+### Sharing existing files with a peer enrolled later
+
+Enrolment affects what is written afterwards. Files already on disk carry envelopes for
+whoever was enrolled when they were written, so a new peer replicates them, verifies
+them, and cannot read a byte.
+
+```
+nexusfs share --config ./nexusfs.toml            # survey
+nexusfs share --config ./nexusfs.toml --apply    # re-seal
+```
+
+Each re-sealed file emits one signed `Write` carrying the same chunks and a new set of
+envelopes, so it replicates and converges like any other operation. Files this node
+cannot itself read are counted and skipped: without the file key there is nothing to
+re-seal with.
+
+**This grants access and never withdraws it.** The ciphertext does not change, so a
+device that once held an envelope — or the repository key a file was sealed with — can
+still decrypt what it kept. Running `share` after *removing* a peer does nothing at all.
+Withdrawing access means re-encrypting the content under a fresh key, which is not built.
+
+### What to back up
+
+`identity.toml` is the file that opens your content when per-recipient sealing is in use,
+and it is also what signs this device's operations. `repo.key` still matters for files
+written before sealing existed. Both are in the data directory and written owner-only.
 
 ## Development Workflow
 

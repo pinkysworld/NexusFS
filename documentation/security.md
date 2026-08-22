@@ -36,6 +36,19 @@ the one pinned is refused whatever the policy says. Replacing a pinned key requi
 rotation from an impersonation attempt. Setting `net.tofu = false` requires enrolment
 before first contact.
 
+**Content is sealed per recipient, not under a key every replica holds.** A write seals
+its file key to each enrolled peer's X25519 key and to this device's, so a replica that
+is not a recipient cannot read the content even holding every stored byte. Each device's
+signing and sealing keys are independent secrets rather than one mapped into the other's
+curve, which keeps a signing oracle and a Diffie-Hellman oracle off the same scalar.
+Revoking a peer removes both its keys, so it stops being a recipient of anything written
+afterwards.
+
+**A file does not publish who can read it.** Envelopes carry no recipient identity; a
+reader trials its own key against each. The recipient-set digest a file carries for
+re-sealing is keyed by the file key, so only someone who can already read the file can
+test a candidate set against it.
+
 **Malformed evidence is refused, not ignored.** A proof bundle that does not parse or
 does not match its operation is rejected deterministically. Evidence that can be
 malformed and still accepted is worse than no evidence, because it looks like a check.
@@ -69,9 +82,13 @@ The source threat model highlights concerns such as:
 
 ## Limits Worth Stating Plainly
 
-- **Replicas share one repository key.** At-rest encryption protects the disk and the
-  wire, not one peer from another. Per-recipient envelopes are implemented in
-  `crypto::envelope` but not wired into the write path.
+- **Access cannot be withdrawn.** `nexusfs share` seals a file key to more recipients;
+  nothing takes it back from one. The ciphertext does not change, so a device that once
+  held an envelope can still decrypt what it kept. Revocation needs re-encryption under a
+  fresh key, which is not built.
+- **`identity.toml` is the key to your content.** With per-recipient sealing, losing it
+  loses everything sealed to this device. It is written owner-only, in the data
+  directory.
 - **File names, directory structure and file sizes are not encrypted.**
 - **The commitment layer is not zero-knowledge.** A verifier learns the inode being
   proved and its object hash; what it does not learn is the rest of the tree.

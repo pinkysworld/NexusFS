@@ -20,7 +20,7 @@ A node that skipped content to save power fetches it on demand when someone read
 rather than waiting for the next unconstrained pass.
 
 Not yet implemented: the POSIX/FUSE facade, and zero-knowledge proving — the commitment
-layer is deliberately not that, for reasons recorded below. 205 tests pass, clippy is
+layer is deliberately not that, for reasons recorded below. 227 tests pass, clippy is
 clean, and every feature combination of the binary is built in CI.
 
 ## Implemented Now
@@ -164,10 +164,41 @@ holding a candidate file confirm whether a node stores it, so it is not used.
 Whether a file is encrypted is recorded on the file, not on the node, so enabling
 encryption does not strand content written before it was switched on.
 
-Limitations worth stating plainly: replicas share one repository key, so this protects
-the disk and the wire, not one peer from another. Per-recipient key distribution is what
-`crypto::envelope` is for — now implemented, including `open`, but not yet wired into
-the write path. File names, directory structure and file sizes are not encrypted.
+Replicas no longer share one key. A write seals its file key to each enrolled peer and
+to this device, using X25519 to an ephemeral key and XChaCha20-Poly1305 under the shared
+secret — so a replica holding the ciphertext, every operation, and the old repository key
+still cannot read a file it is not a recipient of. That is the difference between
+"encrypted at rest" and "one peer protected from another".
+
+Each device therefore has two keys: an ed25519 signing key and an X25519 sealing key.
+They are independent secrets rather than one mapped into the other's curve — the
+birational map is standard and would mean one key to enrol instead of two, but it puts a
+signing oracle and a Diffie-Hellman oracle over the same secret scalar, and this is not
+the codebase where that should first be got right. Both are enrolled together:
+`nexusfs peer identity` prints both, `peer add` takes both, and a peer enrolled without a
+sealing key replicates and verifies normally while simply not being a recipient.
+
+Envelopes carry no recipient identity. A reader trials its own key against each, which
+costs one exchange and one AEAD open per entry, and in exchange a file does not publish
+the list of devices able to read it. What a file *does* carry is a digest of its
+recipient set keyed by the file key — needed so re-sealing can tell whether a file is
+already addressed to the current peers, and keyed so that only someone who can read the
+file can test a candidate set against it.
+
+`nexusfs share` re-seals existing files to the peers enrolled now, since enrolment only
+affects what is written afterwards. It grants access and never withdraws it: the
+ciphertext does not change, so anyone who already held a key still holds one. Genuinely
+withdrawing access means re-encrypting under fresh keys, which is key rotation and is not
+built.
+
+The repository key is still read, so files written before this keep working, and it is
+still written by a node that has no sealing key at all. Nothing else produces one.
+
+**What to back up changed.** With per-recipient sealing, `identity.toml` is what opens
+your content — not `repo.key`. Both live in the data directory; the identity file is now
+the one that matters, and it is written owner-only.
+
+Still not encrypted: file names, directory structure and file sizes.
 
 ### Transparent Proofs
 
@@ -307,10 +338,16 @@ converts that into a refusal.
 An older format refuses to open and names `nexusfs migrate` as the fix. A newer one
 refuses and cannot be forced. Opening never migrates by itself: a migration rewrites
 records in place, and the operator may have no backup or be mid-rollout. The current
-format is v2, and the v1 step is real: moving the state root to a Merkle commitment
-changed what the root means, so the migration re-snapshots from live state rather than
-reinterpreting bytes. A brand-new store is stamped current rather than migrated, which
-is why "no head" and "pre-versioning" are distinguished instead of guessed.
+format is v3, and both steps are real. v1 to v2 moved the state root to a Merkle
+commitment, so that migration re-snapshots from live state rather than reinterpreting
+bytes. v2 to v3 changed the shape of a file's encryption record, which cannot be
+rewritten at all — a `FileNode` is named by its own hash and a `Write` is signed — so it
+checks and either carries the repository forward or refuses with the reason. It can carry
+most repositories forward because postcard writes `None` as a single zero byte whatever
+it wraps, which makes every *plaintext* record byte-identical across the two formats.
+
+A brand-new store is stamped current rather than migrated, which is why "no head" and
+"pre-versioning" are distinguished instead of guessed.
 
 **Peer enrolment.** The pinned-key store lives in `core`, not in the networking crate,
 so keys can be managed on a build without QUIC and — more to the point — before any
@@ -355,9 +392,10 @@ consume — the commitment half of the job. `zk_full` remains unimplemented and 
 
 Because the commitment *is* the state root, it is not compile-time optional: a build
 computing a different root could never replicate with one that did not. Changing it
-therefore came with on-disk format v2 and PROTOCOL_VERSION 2, so a stale store is
-refused until migrated and a mismatched peer refuses the handshake rather than syncing
-and then disagreeing forever.
+therefore came with on-disk format v2 and PROTOCOL_VERSION 2. Per-recipient sealing
+brought v3 for the same kind of reason, this time a genuine wire change. Either way a
+stale store is refused until migrated and a mismatched peer refuses the handshake rather
+than syncing and then disagreeing forever.
 
 ### Reading Deferred Content
 
@@ -509,7 +547,7 @@ daemon uses between real nodes.
 
 ### Test Coverage
 
-205 tests, including order-independent convergence (the same operation set applied in
+227 tests, including order-independent convergence (the same operation set applied in
 different orders yields an identical state root), idempotent re-apply, pending-op drain,
 concurrent-create conflict naming, concurrent-write resolution, rename-vs-unlink,
 subtree-cycle refusal, restart persistence, S3 key mapping and pagination, and
@@ -549,8 +587,9 @@ unknown rather than unmetered, and that a stated `link_cost` is used verbatim.
 
 ## Partially Implemented Or Present As Scaffolding
 
-- `crypto::envelope` now seals *and* opens, but is not yet used by the write path, so
-  replicas still share one repository key.
+- Key rotation and re-encryption of content already written. `share` re-seals a file
+  key to more recipients; nothing withdraws access from one, which needs the content
+  itself re-encrypted.
 - Link-cost detection covers Linux via NetworkManager and, on macOS, only a phone
   tethered over USB. A Wi-Fi hotspot reads as unknown, and a VPN hides the link on every
   platform. `energy.link_cost` is the way to state what a probe cannot see.
@@ -577,11 +616,13 @@ not built, grouped by what they would buy.
 
 ### Encryption
 
-- **Per-recipient key envelopes**, so replicas need not share one repository key.
-  `crypto::envelope` seals and opens already; the write path does not use it.
-- **Encrypted names and directory structure**, which are in the clear today. This is the
-  larger change of the two, because it breaks the S3 facade's key mapping.
-- **Key rotation and re-encryption** of content already written.
+- **Key rotation and re-encryption** of content already written. `share` re-seals a file
+  key to more recipients; withdrawing access from one needs the content itself
+  re-encrypted under a fresh key, which rewrites every chunk and every hash naming it.
+- **Encrypted names and directory structure**, which are in the clear today. The larger
+  of the two, because it breaks the S3 facade's key mapping.
+- **Revoking a recipient**, which is the operator-facing half of key rotation and has no
+  meaning without it.
 
 ### Proofs
 
@@ -681,9 +722,8 @@ the commitment over it is still rebuilt per apply — linear in the filesystem f
 that touched one entry. Weigh it against the fact that an apply is currently fsync-bound,
 so the end-to-end gain would be small.
 
-**Also open, smaller.** Metered-link detection, so the scheduler's link rule can fire in
-the field rather than only in tests — the cheapest of these, and the one that turns a
-tested rule into a working one. Per-recipient key envelopes, so replicas need not share
-one repository key. Compressed proof batches, where overlapping paths share their upper
-steps. Surfacing the energy budget in `nexusfs status`, so a node without the admin
-feature can explain its own throttling.
+**Also open, smaller.** Key rotation, which is what would make revoking a recipient mean
+something — `share` grants access and cannot withdraw it. Compressed proof batches, where
+overlapping paths share their upper steps. Push notification, so peers do not wait out
+the poll interval. Prioritising which deferred content to fetch first under a capped
+budget.

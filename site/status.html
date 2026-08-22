@@ -46,7 +46,7 @@
               storage, upgrade across on-disk formats and enrol peer keys ahead of first
               contact, and the state root is a Merkle commitment whose entries can be
               proved present or proved absent, and a node that skipped content to save
-              power fetches it on demand when someone reads. 205 tests, clippy clean,
+              power fetches it on demand when someone reads. 227 tests, clippy clean,
               every feature combination built in CI. The POSIX facade and a real proving
               system are still in the backlog, and named as such rather than implied.
             </p>
@@ -97,9 +97,9 @@
             <article class="feature-card">
               <h3>Highest-value backlog</h3>
               <p>
-                Per-recipient key envelopes, so replicas need not share one repository
-                key. <code>crypto::envelope</code> seals and opens already; the write
-                path does not use it.
+                Key rotation. Envelopes made access per-device, but removing a device
+                does not take back what it already read — that needs the content
+                re-encrypted under a fresh key.
               </p>
             </article>
             <article class="feature-card">
@@ -129,6 +129,7 @@
               <li>S3-compatible objects, buckets, and ListObjectsV2</li>
               <li>QUIC replication with verified remote apply and pinned peer keys</li>
               <li>At-rest encryption with per-file keys, still verifiable by peers</li>
+              <li>File keys sealed per recipient, so replicas share no repository key</li>
               <li>Signed transparent proofs and a <code>verify</code> audit command</li>
               <li>Energy-aware replication budgets, observable at <code>/api/energy</code></li>
               <li>Garbage collection, an enforced format version, and peer enrolment</li>
@@ -145,9 +146,9 @@
             <h2>Still in backlog</h2>
             <ul class="list-block">
               <li>Reading a link's cost through a VPN, and spotting a Wi-Fi hotspot on macOS</li>
-              <li>Per-recipient key envelopes, so replicas need not share one key</li>
               <li>An incremental Merkle tree — the map is maintained, the tree is not</li>
               <li>A mountable interface, which is new scope rather than a debt</li>
+              <li>Key rotation, without which revoking a recipient means nothing</li>
               <li>A real proving system, which needs a circuit-friendly hash</li>
             </ul>
           </div>

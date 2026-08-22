@@ -46,9 +46,15 @@ unless you have another layer in front of it.
 - `mountpoint`: mount path.
 
 ## `[security]`
-- `encrypt_at_rest`: encrypt chunk content before it is written. The repository key is
-  created at `data_dir/repo.key` on first use; **back it up**, because without it the
-  content is unrecoverable. Replicas need the same key to read each other's files.
+- `encrypt_at_rest`: encrypt chunk content before it is written. Each write seals its
+  file key to every enrolled peer that has a sealing key, and to this device — so
+  **`data_dir/identity.toml` is what opens your content, and losing it loses everything
+  sealed to this device.** A repository key at `data_dir/repo.key` is still created and
+  read, because files written before per-recipient sealing were sealed with it; nothing
+  new uses it unless the node has no sealing key at all.
+
+  Enrolling a peer affects only what is written afterwards. `nexusfs share` re-seals
+  existing files to the peers enrolled now; it grants access and never withdraws it.
 - `proof_mode`: one of
   - `none` — signatures and hashes only
   - `transparent` — attach signed evidence to local operations, and reject malformed
@@ -93,4 +99,4 @@ free".
 
 The store records the format version it was written with, independently of this file. A
 build that finds an older one refuses to open it and names `nexusfs migrate`; a build
-that finds a newer one refuses and cannot be forced. The current version is 2.
+that finds a newer one refuses and cannot be forced. The current version is 3.

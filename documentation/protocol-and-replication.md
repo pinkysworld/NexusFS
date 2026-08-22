@@ -80,8 +80,10 @@ wrong, and refusing them would make the mode unusable while a cluster is mid-upg
 
 Because the commitment *is* the state root, it is not compile-time optional: a build
 computing a different root could never replicate with one that did not. Changing it came
-with on-disk format v2 and `PROTOCOL_VERSION` 2, so a stale store is refused until
-migrated and a mismatched peer refuses the handshake rather than syncing and then
-disagreeing forever.
+with on-disk format v2 and `PROTOCOL_VERSION` 2. Per-recipient sealing brought v3, which
+does change the wire format: a `Write` carrying encrypted content describes how its file
+key is protected in a different shape. Either way a stale store is refused until migrated
+and a mismatched peer refuses the handshake rather than syncing and then disagreeing
+forever.
 
 For message details, use `../docs/protocol.md`.

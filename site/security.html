@@ -64,6 +64,14 @@
               </p>
             </article>
             <article class="feature-card">
+              <h3>Sealed per recipient</h3>
+              <p>
+                A write seals its file key to each enrolled peer and to this device, so a
+                replica holding every stored byte still cannot read a file it is not a
+                recipient of. No key is shared across replicas.
+              </p>
+            </article>
+            <article class="feature-card">
               <h3>Pinned peer keys</h3>
               <p>
                 An ed25519 key pinned on first use, independent of TLS. Replacing one
@@ -111,7 +119,8 @@
           <div class="content-panel">
             <h2>Limits worth stating plainly</h2>
             <ul class="list-block">
-              <li>Replicas share one repository key — this protects the disk and the wire, not one peer from another.</li>
+              <li>Access cannot be withdrawn: sealing adds recipients, and the ciphertext never changes.</li>
+              <li><code>identity.toml</code> is what opens your content — losing it loses everything sealed to this device.</li>
               <li>File names, directory structure and file sizes are not encrypted.</li>
               <li>The commitment layer is not zero-knowledge: a verifier learns the entry proved, just not the rest of the tree.</li>
               <li>The S3 facade has no request signing, so it belongs on loopback unless a shared secret is set.</li>

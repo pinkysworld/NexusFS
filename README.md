@@ -16,7 +16,7 @@ single binary.
 > entries can be proved individually — including proving that one is **absent**, which
 > makes a deletion demonstrable. A node that skipped content to save power **fetches it
 > on demand** when someone reads. The POSIX/FUSE facade is **not implemented yet**, and
-> the commitment layer is **not zero-knowledge** — see below. 205 tests, clippy clean,
+> the commitment layer is **not zero-knowledge** — see below. 227 tests, clippy clean,
 > every feature combination built in CI. Full detail in
 > [`documentation/current-status.md`](documentation/current-status.md).
 
@@ -79,7 +79,7 @@ cargo run -p nexusfs -- status --config ./nexusfs.toml
 ```
 
 Commands: `mkdir [-p]`, `put`, `cat`, `ls`, `rm`, `mv`, `status`, `verify`, `gc`,
-`migrate`, `peer`, `prove`, `check-proof`, `daemon`.
+`migrate`, `peer`, `share`, `prove`, `check-proof`, `daemon`.
 
 Run the daemon for the admin console on <http://127.0.0.1:7070> — it browses the
 filesystem, shows replication and power state, and audits the repository on request:
@@ -156,9 +156,30 @@ That checks every signature and proof, and reads every file back — so missing 
 wrong keys and tampered ciphertext all surface here. It exits non-zero on failure, so it
 works as a cron or CI check. The same report is served at `/api/security`.
 
-**Limits worth knowing.** Replicas share one repository key, so this protects the disk
-and the wire, not one peer from another. File names, directory structure and file sizes
-are not encrypted. `zk_commit` is implemented — see [Provable state](#provable-state) —
+**Replicas no longer share one key.** A write seals its file key to each enrolled peer
+and to this device. A replica holding the ciphertext, every operation and the old
+repository key still cannot read a file it is not a recipient of.
+
+Every device has two keys: an ed25519 signing key and an X25519 sealing key, independent
+secrets rather than one mapped into the other's curve. `nexusfs peer identity` prints
+both and `peer add` takes both; a peer enrolled without a sealing key replicates and
+verifies normally but is not a recipient.
+
+Enrolment only affects what is written afterwards, so bring older files up to date with:
+
+```bash
+cargo run -p nexusfs -- share --config ./nexusfs.toml --apply
+```
+
+That **grants** access and never withdraws it — the ciphertext is unchanged, so anyone
+who already held a key still holds one. Withdrawing access means re-encrypting under
+fresh keys, which is not built.
+
+**Back up `identity.toml`.** With per-recipient sealing it is what opens your content,
+not `repo.key`. Both are in the data directory, written owner-only.
+
+**Limits worth knowing.** File names, directory structure and file sizes are not
+encrypted. There is no way to revoke a recipient's access to what it has already seen. `zk_commit` is implemented — see [Provable state](#provable-state) —
 but is a commitment scheme rather than zero-knowledge. `zk_full` is accepted as a config
 value and behaves as `none` rather than pretending to prove anything.
 
