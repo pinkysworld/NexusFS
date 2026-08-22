@@ -95,6 +95,7 @@ cannot run while the daemon holds the store. Query the running daemon instead.
 | `nexusfs peer identity` | this node's device id and public key |
 | `nexusfs peer list/add/remove` | manage which peers are trusted |
 | `nexusfs share` | re-seal existing files to the peers enrolled now; `--apply` to write |
+| `nexusfs rotate` | re-encrypt content under fresh keys; `--apply` to write, `--path` for one file |
 | `nexusfs prove <path>` | emit a proof that a path holds its current content |
 | `nexusfs check-proof <file>` | verify one, without opening any repository |
 
@@ -180,7 +181,29 @@ re-seal with.
 **This grants access and never withdraws it.** The ciphertext does not change, so a
 device that once held an envelope — or the repository key a file was sealed with — can
 still decrypt what it kept. Running `share` after *removing* a peer does nothing at all.
-Withdrawing access means re-encrypting the content under a fresh key, which is not built.
+
+### Removing a peer's access
+
+Revoking stops a device receiving anything new, and does nothing to what is already
+written. To withdraw access to existing content, re-encrypt it:
+
+```
+nexusfs peer remove --config ./nexusfs.toml <device-id>
+nexusfs rotate --config ./nexusfs.toml            # survey
+nexusfs rotate --config ./nexusfs.toml --apply    # re-encrypt
+nexusfs gc --config ./nexusfs.toml --apply        # reclaim the old ciphertext
+```
+
+Each rotated file mints a fresh key, re-encrypts under it, and seals that to the
+recipients enrolled now. Use `--path` for a single file when one key is suspect rather
+than a peer departing.
+
+**What rotation can and cannot do.** It withdraws access to the content *from here on*.
+A device that already copied the old ciphertext and kept a key for it can still read that
+version, for as long as it keeps the bytes — nothing can withdraw what somebody already
+took. Rotation is also expensive in a way re-sealing is not: every byte is read,
+encrypted again and written again, which is why it has its own survey and its own
+`--apply`.
 
 ### What to back up
 

@@ -35,8 +35,12 @@ old root and an absence proof against a new one demonstrate a deletion. And a no
 skipped content to save power fetches it on demand when someone actually reads, rather
 than waiting for the next unconstrained pass.
 
-**Still unimplemented:** the POSIX/FUSE facade, per-recipient key envelopes (replicas
-share one repository key), metered-link detection, an incremental Merkle tree, and
+Content is sealed per recipient rather than under a key every replica holds, so a node
+can hold every byte of a file, verify it, replicate it onward, and still not be able to
+read it — and `nexusfs rotate` re-encrypts under fresh keys when a peer is removed.
+
+**Still unimplemented:** the POSIX/FUSE facade, encrypted file names and directory
+structure, push notification instead of polling, an incremental Merkle tree, and
 zero-knowledge proving. None of it blocks what shipped; see [Backlog](./backlog.md). The
 commitment layer is deliberately not zero-knowledge: a verifier learns the entry being
 proved, just not the rest of the tree. `zk_full` is accepted as a config value and

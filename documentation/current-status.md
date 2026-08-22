@@ -20,7 +20,7 @@ A node that skipped content to save power fetches it on demand when someone read
 rather than waiting for the next unconstrained pass.
 
 Not yet implemented: the POSIX/FUSE facade, and zero-knowledge proving — the commitment
-layer is deliberately not that, for reasons recorded below. 227 tests pass, clippy is
+layer is deliberately not that, for reasons recorded below. 231 tests pass, clippy is
 clean, and every feature combination of the binary is built in CI.
 
 ## Implemented Now
@@ -187,9 +187,22 @@ file can test a candidate set against it.
 
 `nexusfs share` re-seals existing files to the peers enrolled now, since enrolment only
 affects what is written afterwards. It grants access and never withdraws it: the
-ciphertext does not change, so anyone who already held a key still holds one. Genuinely
-withdrawing access means re-encrypting under fresh keys, which is key rotation and is not
-built.
+ciphertext does not change, so anyone who already held a key still holds one.
+
+`nexusfs rotate` is the other half, and what removing a peer actually needs. It mints a
+fresh file key per file, re-encrypts the content under it, and seals that to the
+recipients enrolled now — so every chunk changes, every hash naming it changes, and the
+old ciphertext becomes garbage `gc` reclaims. `--path` limits it to one file, for a
+suspect key rather than a departing peer.
+
+What rotation withdraws is access to the content *from here on*. A device that copied the
+old ciphertext and kept an envelope for it can still read that version for as long as it
+keeps the bytes; nothing can withdraw what somebody already took. That sentence is
+printed on every run, survey included, because an operator who believes otherwise will
+make a decision they would not otherwise make.
+
+The two are separate commands because the costs are not comparable: re-sealing rewrites a
+few hundred bytes of envelope per file, rotation reads and rewrites every byte.
 
 The repository key is still read, so files written before this keep working, and it is
 still written by a node that has no sealing key at all. Nothing else produces one.
@@ -547,7 +560,7 @@ daemon uses between real nodes.
 
 ### Test Coverage
 
-227 tests, including order-independent convergence (the same operation set applied in
+231 tests, including order-independent convergence (the same operation set applied in
 different orders yields an identical state root), idempotent re-apply, pending-op drain,
 concurrent-create conflict naming, concurrent-write resolution, rename-vs-unlink,
 subtree-cycle refusal, restart persistence, S3 key mapping and pagination, and
@@ -616,13 +629,14 @@ not built, grouped by what they would buy.
 
 ### Encryption
 
-- **Key rotation and re-encryption** of content already written. `share` re-seals a file
-  key to more recipients; withdrawing access from one needs the content itself
-  re-encrypted under a fresh key, which rewrites every chunk and every hash naming it.
-- **Encrypted names and directory structure**, which are in the clear today. The larger
-  of the two, because it breaks the S3 facade's key mapping.
-- **Revoking a recipient**, which is the operator-facing half of key rotation and has no
-  meaning without it.
+- **Encrypted names and directory structure**, which are in the clear today. Larger than
+  it sounds, because it breaks the S3 facade's key mapping.
+- **Whether the handshake should carry the sealing key**, so trust-on-first-use pins both
+  and encrypted replication works without a second enrolment step. The cost is granting
+  read access to whoever connects first, which is a larger grant than accepting their
+  operations — a question rather than an obvious yes.
+- **Rotation on a schedule**, or triggered by revocation. Today it is a command an
+  operator runs.
 
 ### Proofs
 
@@ -722,8 +736,7 @@ the commitment over it is still rebuilt per apply — linear in the filesystem f
 that touched one entry. Weigh it against the fact that an apply is currently fsync-bound,
 so the end-to-end gain would be small.
 
-**Also open, smaller.** Key rotation, which is what would make revoking a recipient mean
-something — `share` grants access and cannot withdraw it. Compressed proof batches, where
-overlapping paths share their upper steps. Push notification, so peers do not wait out
-the poll interval. Prioritising which deferred content to fetch first under a capped
-budget.
+**Also open, smaller.** Compressed proof batches, where overlapping paths share their
+upper steps. Push notification, so peers do not wait out the poll interval. Prioritising
+which deferred content to fetch first under a capped budget. Cached directory maps, since
+`resolve_path` re-materializes each directory once per path component.

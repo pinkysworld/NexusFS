@@ -9,7 +9,7 @@ it blocks what shipped.
 ## Ground rules
 
 - Keep crate boundaries clean (see [`docs/architecture.md`](docs/architecture.md)).
-- Add tests for every feature. The suite is 227 tests and the interesting ones are
+- Add tests for every feature. The suite is 231 tests and the interesting ones are
   properties, not smoke tests — order-independent convergence, idempotent re-apply,
   what a proof must refuse.
 - Do not break the canonical encoding without bumping object versions. `postcard`
@@ -57,6 +57,9 @@ estimated. Keep it that way.
   overwrite.
 - Do not present unverified data as verified. If a field is not covered by a signature
   or a proof, label it.
+- Do not overstate what a security operation achieves. `share` grants access and cannot
+  withdraw it; `rotate` withdraws it going forward and cannot reach a copy already taken.
+  Both say so on every run, and anything similar should too.
 
 ## Documentation
 

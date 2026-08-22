@@ -63,8 +63,8 @@
                 that verification, replication adapts to the device's power and heat,
                 and the state root is a Merkle commitment — so any single file can be
                 proved present, or proved gone, to someone holding no filesystem at all.
-                A node that skipped the bytes to save power fetches them when someone
-                actually reads.
+                Content is sealed per recipient, so a replica can hold every byte of a
+                file and still not be able to read it.
               </p>
             </div>
             <div class="mini-grid">
@@ -99,11 +99,11 @@
           </div>
           <div class="stat">
             <span class="stat-label">At rest</span>
-            <strong>XChaCha20-Poly1305, per-file keys</strong>
+            <strong>XChaCha20-Poly1305, sealed per recipient</strong>
           </div>
           <div class="stat">
             <span class="stat-label">Test suite</span>
-            <strong>227 tests, clippy clean</strong>
+            <strong>231 tests, clippy clean</strong>
           </div>
           <div class="stat">
             <span class="stat-label">Licence</span>

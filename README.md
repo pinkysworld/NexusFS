@@ -16,7 +16,7 @@ single binary.
 > entries can be proved individually — including proving that one is **absent**, which
 > makes a deletion demonstrable. A node that skipped content to save power **fetches it
 > on demand** when someone reads. The POSIX/FUSE facade is **not implemented yet**, and
-> the commitment layer is **not zero-knowledge** — see below. 227 tests, clippy clean,
+> the commitment layer is **not zero-knowledge** — see below. 231 tests, clippy clean,
 > every feature combination built in CI. Full detail in
 > [`documentation/current-status.md`](documentation/current-status.md).
 
@@ -79,7 +79,7 @@ cargo run -p nexusfs -- status --config ./nexusfs.toml
 ```
 
 Commands: `mkdir [-p]`, `put`, `cat`, `ls`, `rm`, `mv`, `status`, `verify`, `gc`,
-`migrate`, `peer`, `share`, `prove`, `check-proof`, `daemon`.
+`migrate`, `peer`, `share`, `rotate`, `prove`, `check-proof`, `daemon`.
 
 Run the daemon for the admin console on <http://127.0.0.1:7070> — it browses the
 filesystem, shows replication and power state, and audits the repository on request:
@@ -172,8 +172,17 @@ cargo run -p nexusfs -- share --config ./nexusfs.toml --apply
 ```
 
 That **grants** access and never withdraws it — the ciphertext is unchanged, so anyone
-who already held a key still holds one. Withdrawing access means re-encrypting under
-fresh keys, which is not built.
+who already held a key still holds one. Removing a peer's access to existing content
+means re-encrypting it:
+
+```bash
+cargo run -p nexusfs -- rotate --config ./nexusfs.toml --apply
+```
+
+Each file gets a fresh key, re-encrypted and sealed to the recipients enrolled now, so
+the old ciphertext becomes garbage `gc` reclaims. What that withdraws is access **from
+here on**: a device that already copied the old bytes and kept a key for them can still
+read that version. Nothing can withdraw what somebody already took.
 
 **Trust-on-first-use does not grant read access.** TOFU pins the connecting device's
 signing key, which decides whether its operations are accepted — not whether it can read
@@ -184,7 +193,7 @@ encrypted files returns `403`. Enrol the sealing key explicitly to change that.
 not `repo.key`. Both are in the data directory, written owner-only.
 
 **Limits worth knowing.** File names, directory structure and file sizes are not
-encrypted. There is no way to revoke a recipient's access to what it has already seen. `zk_commit` is implemented — see [Provable state](#provable-state) —
+encrypted. `zk_commit` is implemented — see [Provable state](#provable-state) —
 but is a commitment scheme rather than zero-knowledge. `zk_full` is accepted as a config
 value and behaves as `none` rather than pretending to prove anything.
 

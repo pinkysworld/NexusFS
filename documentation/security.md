@@ -91,10 +91,10 @@ The source threat model highlights concerns such as:
 
 ## Limits Worth Stating Plainly
 
-- **Access cannot be withdrawn.** `nexusfs share` seals a file key to more recipients;
-  nothing takes it back from one. The ciphertext does not change, so a device that once
-  held an envelope can still decrypt what it kept. Revocation needs re-encryption under a
-  fresh key, which is not built.
+- **Access cannot be withdrawn retroactively.** `nexusfs rotate` re-encrypts content
+  under fresh keys, so a removed peer loses access to everything from that point on. What
+  it cannot do is reach the copy that peer already took: those bytes and the envelope for
+  them still decrypt. This is inherent, not an implementation gap.
 - **`identity.toml` is the key to your content.** With per-recipient sealing, losing it
   loses everything sealed to this device. It is written owner-only, in the data
   directory.

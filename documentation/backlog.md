@@ -25,6 +25,9 @@ remaining research tracks are named in `./roadmap.md` rather than left implied. 
 
 Since then, and previously listed here as outstanding:
 
+- **Key rotation.** `nexusfs rotate` re-encrypts content under fresh keys sealed to the
+  recipients enrolled now, which is what removing a peer needs: re-sealing adds
+  recipients and cannot take one away, because the ciphertext does not change.
 - **Per-recipient key envelopes.** A write seals its file key to each enrolled peer and
   to this device rather than to a repository key every replica holds, so a replica that
   is not a recipient genuinely cannot read the content. Every device now has an X25519
@@ -86,12 +89,12 @@ Completed" above.
   cost of granting read access to whoever connects first — a larger grant than "I will
   accept your operations", and the reason it is a question rather than an obvious yes.
 
-- Key rotation and re-encryption of existing content. This is what would make revoking a
-  recipient mean anything: `nexusfs share` grants access and cannot withdraw it, because
-  the ciphertext does not change and anyone who held a key still holds one.
 - Encrypt file names and directory structure, which are currently in the clear.
+- Rotate on a schedule, or automatically when a peer is revoked. Today `nexusfs rotate`
+  is a command an operator runs, and nothing reminds them to.
 
-Per-recipient key envelopes are **done** — see "Recently Completed" above.
+Per-recipient key envelopes and key rotation are **done** — see "Recently Completed"
+above.
 
 ### Replication Follow-Ups
 
@@ -142,7 +145,7 @@ on-disk format stamp, and `nexusfs peer` with explicit key enrolment and `--rota
 - Add admin API coverage beyond the minimal routes.
 - Add transport failure and retry tests.
 
-The suite is 227 tests today, covering convergence, conflict naming, encryption,
+The suite is 231 tests today, covering convergence, conflict naming, encryption,
 replication over both an in-memory pipe and real QUIC sockets, the scheduler's decision
 table, collection safety, format refusals in both directions, and the Merkle commitment
 including the forgeries an absence proof must refuse.
@@ -171,9 +174,8 @@ including the forgeries an absence proof must refuse.
 
 The most effective execution order right now is:
 
-1. Key rotation, so that revoking a recipient means something. Envelopes made access
-   per-device; without rotation, removing a device does not take back what it already
-   read.
+1. Push notification of new operations, so peers do not wait out the poll interval. The
+   most visible remaining latency in replication.
 2. A mountable interface, if one is wanted. See the note in `./current-status.md`:
    POSIX/FUSE is not owed — M2 asked for *one* facade and the S3 one shipped — and
    WebDAV reaches the same user-visible outcome without a kernel extension.

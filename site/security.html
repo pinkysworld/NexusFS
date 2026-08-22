@@ -72,6 +72,14 @@
               </p>
             </article>
             <article class="feature-card">
+              <h3>Rotation withdraws access</h3>
+              <p>
+                Removing a peer and running <code>nexusfs rotate</code> re-encrypts
+                content under fresh keys, so it loses access from then on. What no
+                system can do is reach the copy it already took.
+              </p>
+            </article>
+            <article class="feature-card">
               <h3>Pinned peer keys</h3>
               <p>
                 An ed25519 key pinned on first use, independent of TLS. Replacing one
@@ -119,7 +127,7 @@
           <div class="content-panel">
             <h2>Limits worth stating plainly</h2>
             <ul class="list-block">
-              <li>Access cannot be withdrawn: sealing adds recipients, and the ciphertext never changes.</li>
+              <li>Access cannot be withdrawn <em>retroactively</em>: rotation re-encrypts, but the copy a peer already took still decrypts.</li>
               <li><code>identity.toml</code> is what opens your content — losing it loses everything sealed to this device.</li>
               <li>File names, directory structure and file sizes are not encrypted.</li>
               <li>The commitment layer is not zero-knowledge: a verifier learns the entry proved, just not the rest of the tree.</li>

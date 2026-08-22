@@ -211,10 +211,19 @@
               </p>
               <p>
                 A real node also decides <em>how much</em> to pull. On a low battery, a hot
-                machine, or a metered connection, it takes the operations and defers the
-                content — so it still knows the file exists and where it lives, and fetches
-                the bytes when power allows. That is the same split you saw here between
-                the tree and the file contents.
+                machine, a metered connection, or a nearly full disk, it takes the
+                operations and defers the content — so it still knows the file exists and
+                where it lives. When someone actually opens the file, it fetches exactly
+                the bytes that read needs rather than waiting for the next unconstrained
+                pass. That is the same split you saw here between the tree and the file
+                contents.
+              </p>
+              <p>
+                And a real node can encrypt what it stores. Each file gets its own key,
+                sealed to each device you have enrolled — so a replica can hold every byte
+                of a file, verify it, replicate it onward, and still not be able to read
+                it. Nothing on this page is encrypted, because there is only one device
+                here and nobody to keep it from.
               </p>
             </div>
             <div class="callout-actions">

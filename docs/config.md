@@ -55,6 +55,9 @@ unless you have another layer in front of it.
 
   Enrolling a peer affects only what is written afterwards. `nexusfs share` re-seals
   existing files to the peers enrolled now; it grants access and never withdraws it.
+  `nexusfs rotate` re-encrypts content under fresh keys, which is what removing a peer
+  needs — and withdraws access from that point on, not from the copy the peer already
+  took.
 - `proof_mode`: one of
   - `none` — signatures and hashes only
   - `transparent` — attach signed evidence to local operations, and reject malformed
