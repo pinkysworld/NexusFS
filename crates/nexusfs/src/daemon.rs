@@ -27,14 +27,20 @@ struct EnergyGate {
     core: CoreState,
     /// Link cost stated in config; `None` means detect it each pass.
     link_override: Option<nexusfs_energy::LinkCost>,
+    /// The store's directory, whose free space is the one that matters — a node with
+    /// its store on an external volume does not care what `/` has left.
+    data_dir: PathBuf,
     last: std::sync::Mutex<(nexusfs_energy::Telemetry, nexusfs_energy::SyncBudget)>,
 }
 
 #[cfg(any(feature = "quic", feature = "admin"))]
 impl EnergyGate {
-    fn new(cfg: &crate::config::Energy, core: CoreState) -> Self {
-        let thresholds =
-            nexusfs_energy::Thresholds::from_config(cfg.battery_low_pct, cfg.temp_high_c);
+    fn new(cfg: &crate::config::Energy, core: CoreState, data_dir: PathBuf) -> Self {
+        let thresholds = nexusfs_energy::Thresholds::from_config(
+            cfg.battery_low_pct,
+            cfg.temp_high_c,
+            cfg.storage_reserve_mb,
+        );
         let scheduler = if cfg.enabled {
             nexusfs_energy::RuleBasedScheduler::new(thresholds)
         } else {
@@ -60,6 +66,7 @@ impl EnergyGate {
             enabled: cfg.enabled,
             core,
             link_override,
+            data_dir,
             last: std::sync::Mutex::new((
                 nexusfs_energy::Telemetry::default(),
                 nexusfs_energy::SyncBudget::unlimited(),
@@ -70,7 +77,10 @@ impl EnergyGate {
     fn sample(&self) -> (nexusfs_energy::Telemetry, nexusfs_energy::SyncBudget) {
         use nexusfs_energy::Scheduler as _;
 
-        let telemetry = nexusfs_energy::telemetry::sample_with_link(self.link_override);
+        let telemetry = nexusfs_energy::telemetry::sample_with(&nexusfs_energy::SampleInputs {
+            link: self.link_override,
+            data_dir: Some(&self.data_dir),
+        });
         // Backlog size feeds the conserving band: a device with nothing outstanding has
         // no reason to be capped.
         let backlog = nexusfs_energy::BacklogView {
@@ -150,6 +160,7 @@ impl nexusfs_admin::EnergySource for EnergyGate {
                 LinkCost::Unknown => "unknown",
             }
             .into(),
+            storage_free_bytes: t.storage_free_bytes,
             sampled_unix_ms: t.sampled_unix_ms,
             sync: b.sync,
             content: b.content,
@@ -246,6 +257,7 @@ pub async fn run_status(config_path: PathBuf) -> Result<()> {
     );
     println!("pending:     {}", core.pending_count()?);
     println!("blobs:       {blob_count} ({blob_bytes} bytes)");
+    print_energy(&cfg, &core);
     println!(
         "admin_token: {}",
         if admin_token.is_empty() {
@@ -255,6 +267,81 @@ pub async fn run_status(config_path: PathBuf) -> Result<()> {
         }
     );
     Ok(())
+}
+
+/// Print the current power reading and what replication may do about it.
+///
+/// The same decision `/api/energy` serves, in the one place an operator can reach
+/// without the admin feature compiled in — which is exactly the build most likely to be
+/// running on a constrained device, and so the one most likely to be throttling. A node
+/// that silently syncs less than expected and cannot say why is a support ticket.
+///
+/// Reported even when scheduling is disabled, because "nothing is throttling this" and
+/// "throttling is switched off" are different answers to the same question.
+fn print_energy(cfg: &Config, core: &CoreState) {
+    use nexusfs_energy::Scheduler as _;
+
+    let thresholds = nexusfs_energy::Thresholds::from_config(
+        cfg.energy.battery_low_pct,
+        cfg.energy.temp_high_c,
+        cfg.energy.storage_reserve_mb,
+    );
+    let scheduler = if cfg.energy.enabled {
+        nexusfs_energy::RuleBasedScheduler::new(thresholds)
+    } else {
+        nexusfs_energy::RuleBasedScheduler::disabled()
+    };
+
+    let data_dir = cfg.data_dir();
+    let telemetry = nexusfs_energy::telemetry::sample_with(&nexusfs_energy::SampleInputs {
+        link: nexusfs_energy::link::parse_config(&cfg.energy.link_cost),
+        data_dir: Some(&data_dir),
+    });
+    let backlog = nexusfs_energy::BacklogView {
+        pending_ops: core.pending_count().unwrap_or(0) as u64,
+        missing_chunks: core
+            .missing_chunk_hashes()
+            .map(|h| h.len() as u64)
+            .unwrap_or(0),
+    };
+    let budget = scheduler.plan(&telemetry, &backlog);
+
+    let power = match telemetry.power {
+        nexusfs_energy::PowerSource::Mains => "mains".to_string(),
+        nexusfs_energy::PowerSource::Battery => match telemetry.battery_pct {
+            Some(pct) => format!("battery {pct}%"),
+            None => "battery (charge unreadable)".into(),
+        },
+        nexusfs_energy::PowerSource::Unknown => "unknown".into(),
+    };
+    let link = match telemetry.link {
+        nexusfs_energy::LinkCost::Metered => "metered",
+        nexusfs_energy::LinkCost::Unmetered => "unmetered",
+        nexusfs_energy::LinkCost::Unknown => "unknown",
+    };
+
+    println!("power:       {power}, link {link}");
+    let allowed = if !budget.sync {
+        "paused".to_string()
+    } else if !budget.content {
+        "operations only".into()
+    } else if budget.max_content_bytes == u64::MAX {
+        "operations and content".into()
+    } else {
+        format!(
+            "operations and up to {} of content per pass",
+            nexusfs_energy::human_bytes(budget.max_content_bytes)
+        )
+    };
+    println!(
+        "sync budget: {allowed}{}",
+        if cfg.energy.enabled {
+            String::new()
+        } else {
+            " (energy-aware scheduling is disabled)".into()
+        }
+    );
+    println!("             {}", budget.reason);
 }
 
 pub async fn run_daemon(config_path: PathBuf) -> Result<()> {
@@ -281,7 +368,7 @@ pub async fn run_daemon(config_path: PathBuf) -> Result<()> {
         if !cfg.energy.enabled {
             info!("energy-aware scheduling is disabled; replication will run unthrottled");
         }
-        Arc::new(EnergyGate::new(&cfg.energy, core.clone()))
+        Arc::new(EnergyGate::new(&cfg.energy, core.clone(), cfg.data_dir()))
     };
 
     // Replication starts before the facades, because they borrow its transport to

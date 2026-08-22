@@ -80,18 +80,32 @@ fn now_ms() -> u64 {
 
 /// Take a best-effort reading of the current device state, detecting the link cost.
 pub fn sample() -> Telemetry {
-    sample_with_link(None)
+    sample_with(&SampleInputs::default())
 }
 
-/// As [`sample`], with the link cost supplied rather than detected.
+/// What a sample needs that the machine cannot supply on its own.
 ///
-/// `Some` skips detection entirely. That is not just an optimisation: detection is
-/// partial by platform (see [`crate::link`]), so an operator stating the answer is
-/// giving better information than a probe could, and re-deriving it would be spending
-/// a subprocess per pass to second-guess them.
-pub fn sample_with_link(link: Option<LinkCost>) -> Telemetry {
+/// A struct rather than more arguments, because both fields arrived by the same route:
+/// a reading the host cannot answer for by itself, and the arg list was going to keep
+/// growing one probe at a time.
+#[derive(Debug, Clone, Default)]
+pub struct SampleInputs<'a> {
+    /// Link cost stated in config. `Some` skips detection entirely — not merely as an
+    /// optimisation: detection is partial by platform (see [`crate::link`]), so an
+    /// operator stating the answer is giving better information than a probe could,
+    /// and re-deriving it would spend a subprocess per pass to second-guess them.
+    pub link: Option<LinkCost>,
+    /// The directory whose free space matters — the store's, not the root filesystem's.
+    /// A node with its store on an external volume cares about that volume, and the two
+    /// can differ by orders of magnitude. `None` skips the probe and reports unknown.
+    pub data_dir: Option<&'a std::path::Path>,
+}
+
+/// As [`sample`], with the readings the caller knows better than the host does.
+pub fn sample_with(inputs: &SampleInputs<'_>) -> Telemetry {
     let mut t = platform_sample();
-    t.link = link.unwrap_or_else(crate::link::detect);
+    t.link = inputs.link.unwrap_or_else(crate::link::detect);
+    t.storage_free_bytes = inputs.data_dir.and_then(crate::storage::free_bytes);
     t.sampled_unix_ms = now_ms();
     t
 }
@@ -233,7 +247,11 @@ mod tests {
         // Including `Unmetered`, which detection on this host may not be able to
         // conclude: the operator's statement is the answer, not a starting hypothesis.
         for stated in [LinkCost::Metered, LinkCost::Unmetered, LinkCost::Unknown] {
-            assert_eq!(sample_with_link(Some(stated)).link, stated);
+            let inputs = SampleInputs {
+                link: Some(stated),
+                ..SampleInputs::default()
+            };
+            assert_eq!(sample_with(&inputs).link, stated);
         }
     }
 
@@ -241,7 +259,28 @@ mod tests {
     fn sampling_always_stamps_a_time() {
         // The console's staleness check keys off this; a zero would make every reading
         // look older than the threshold and re-sample forever.
-        assert!(sample_with_link(Some(LinkCost::Unknown)).sampled_unix_ms > 0);
+        let inputs = SampleInputs {
+            link: Some(LinkCost::Unknown),
+            ..SampleInputs::default()
+        };
+        assert!(sample_with(&inputs).sampled_unix_ms > 0);
+    }
+
+    #[test]
+    fn free_space_is_reported_only_when_a_directory_is_supplied() {
+        // Without a path there is nothing to stat, and the field must stay unknown
+        // rather than defaulting to a number the scheduler would act on.
+        assert_eq!(sample().storage_free_bytes, None);
+
+        let here = std::path::PathBuf::from(".");
+        let inputs = SampleInputs {
+            link: Some(LinkCost::Unknown),
+            data_dir: Some(&here),
+        };
+        // The value is host-dependent; that a supplied path is actually probed is not.
+        if let Some(free) = sample_with(&inputs).storage_free_bytes {
+            assert!(free > 0);
+        }
     }
 
     #[test]

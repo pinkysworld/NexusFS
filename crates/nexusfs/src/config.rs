@@ -98,10 +98,21 @@ pub struct Energy {
     /// Defaulted so configs written before this existed keep parsing.
     #[serde(default = "default_link_cost")]
     pub link_cost: String,
+    /// Megabytes of free space to leave alone on the store's filesystem.
+    ///
+    /// Not a throttle threshold but a floor: replication is a background job filling
+    /// someone else's disk, and the last gigabyte belongs to whatever the machine is
+    /// actually for. Content is held to the room above this, and stops entirely at it.
+    #[serde(default = "default_storage_reserve_mb")]
+    pub storage_reserve_mb: u64,
 }
 
 fn default_link_cost() -> String {
     "auto".into()
+}
+
+fn default_storage_reserve_mb() -> u64 {
+    1024
 }
 
 impl Config {

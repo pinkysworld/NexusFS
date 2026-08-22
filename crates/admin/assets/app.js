@@ -596,6 +596,12 @@
     setText("eTemp", e.temp_c == null ? "—" : `${e.temp_c} °C`);
     setText("eLoad", e.cpu_load == null ? "—" : e.cpu_load.toFixed(2));
     setText("eLink", e.link);
+    // An unreadable disk is "—", never "0 B": the scheduler treats unknown as
+    // unconstrained, and a console showing zero would suggest the opposite.
+    setText(
+      "eDisk",
+      e.storage_free_bytes == null ? "—" : formatBytes(e.storage_free_bytes),
+    );
     setText("eInterval", `${e.interval_scale}× configured`);
 
     let label;

@@ -58,6 +58,9 @@ pub struct EnergyView {
     pub cpu_load: Option<f32>,
     /// "unmetered" | "metered" | "unknown".
     pub link: String,
+    /// Free space where the store lives. `None` when it could not be read — which is
+    /// not the same as zero, and the console must not render it as such.
+    pub storage_free_bytes: Option<u64>,
     pub sampled_unix_ms: u64,
     /// Contact peers at all.
     pub sync: bool,

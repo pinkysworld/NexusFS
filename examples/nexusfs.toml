@@ -84,3 +84,10 @@ temp_high_c = 70
 # "unknown" is treated exactly like "unmetered" by the scheduler, and differs only in
 # what the console claims to know.
 link_cost = "auto"
+# Megabytes of free space to leave alone on the filesystem holding data_dir. Not a
+# throttle threshold but a floor: replication is a background job filling someone else's
+# disk, and the last gigabyte belongs to whatever the machine is actually for. Content
+# is held to the room above this and stops entirely at it; operations keep flowing, so
+# the node still tracks what exists. An unreadable disk reports unknown and constrains
+# nothing.
+storage_reserve_mb = 1024
