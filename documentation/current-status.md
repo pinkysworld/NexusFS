@@ -20,7 +20,7 @@ A node that skipped content to save power fetches it on demand when someone read
 rather than waiting for the next unconstrained pass.
 
 Not yet implemented: the POSIX/FUSE facade, and zero-knowledge proving — the commitment
-layer is deliberately not that, for reasons recorded below. 235 tests pass, clippy is
+layer is deliberately not that, for reasons recorded below. 237 tests pass, clippy is
 clean, and every feature combination of the binary is built in CI.
 
 ## Implemented Now
@@ -573,7 +573,7 @@ daemon uses between real nodes.
 
 ### Test Coverage
 
-235 tests, including order-independent convergence (the same operation set applied in
+237 tests, including order-independent convergence (the same operation set applied in
 different orders yields an identical state root), idempotent re-apply, pending-op drain,
 concurrent-create conflict naming, concurrent-write resolution, rename-vs-unlink,
 subtree-cycle refusal, restart persistence, S3 key mapping and pagination, and
@@ -665,8 +665,10 @@ not built, grouped by what they would buy.
 - **An incremental Merkle tree.** The inode map is maintained rather than walked, but
   the commitment over it is still rebuilt per apply — linear work for a one-entry
   change. Weigh it against the fact that an apply is fsync-bound.
-- **Cached directory maps.** `resolve_path` re-reads and re-materializes each directory
-  once per path component.
+- **One KV row per directory entry**, instead of one postcard blob per directory. What
+  makes a lookup in a wide directory cost anything is decoding the whole map to find one
+  name: at 2000 entries a lookup is 0.772ms, of which 0.780ms is decode. Path *depth*
+  costs almost nothing by comparison — seven components resolve in 0.008ms.
 
 ### Storage Maintenance
 
@@ -751,8 +753,8 @@ the commitment over it is still rebuilt per apply — linear in the filesystem f
 that touched one entry. Weigh it against the fact that an apply is currently fsync-bound,
 so the end-to-end gain would be small.
 
-**Also open, smaller.** Cached directory maps, since `resolve_path` re-materializes each
-directory once per path component — the last easy win in the read path. Compressed proof
-batches, where overlapping paths share their upper steps. Prioritising which deferred
+**Also open, smaller.** One KV row per directory entry, so a lookup stops decoding the
+whole directory to find one name. Compressed proof batches, where overlapping paths share
+their upper steps. Prioritising which deferred
 content to fetch first under a capped budget. Delta-encoded operation ranges rather than
 whole-operation batches.

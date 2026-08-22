@@ -266,7 +266,52 @@ impl CoreState {
 
     /// Look up one name in a directory, using the same view `materialize_dir` shows,
     /// so `ls` and `cat` can never disagree about what a path means.
+    /// Find one entry by name in `parent`.
+    ///
+    /// Asks the map for that one key rather than materializing the directory and
+    /// searching the result. Materializing walks every live key, derives a conflict name
+    /// for each survivor and sorts the lot — so looking up one file in a wide directory
+    /// did the whole work of listing it.
+    ///
+    /// Measured, in ms per lookup:
+    ///
+    /// | entries | before | after | decoding the map alone |
+    /// | --- | --- | --- | --- |
+    /// | 100 | 0.073 | 0.054 | 0.040 |
+    /// | 500 | 0.375 | 0.181 | 0.161 |
+    /// | 2000 | 1.707 | 0.772 | 0.780 |
+    ///
+    /// The third column is the point. What is left after this change is *entirely* the
+    /// cost of decoding the directory's map out of one postcard blob, which is O(width)
+    /// however few entries are wanted from it. Going below that floor means storing a
+    /// directory as one row per entry rather than one blob, which is an on-disk format
+    /// change and a different CRDT merge path — worth doing, and not this.
+    ///
+    /// A path lookup is nearly the whole cost of reading a small file, so
+    /// `read_file_path` fell with it.
+    ///
+    /// The slow path survives for conflict names. `foo~conflict-<device>-<time>` is
+    /// *derived* at materialization time and is not a key in the map, so a name that no
+    /// key matches falls back to the full walk — rare, and the only way to find one.
     pub fn lookup(&self, parent: u128, name: &str) -> Result<Option<DirEntry>> {
+        let Some(map) = self.load_dir(parent)? else {
+            return Ok(None);
+        };
+
+        // The first survivor of a key keeps the plain name; later ones are renamed.
+        // So a direct hit answers only when this name is the winner, and a directory
+        // with a concurrent add falls through to the walk that knows how to name them.
+        let survivors = map.get_all(&name.to_string());
+        if let Some((_, value)) = survivors.first() {
+            if survivors.len() == 1 {
+                return Ok(Some(DirEntry {
+                    name: name.to_string(),
+                    inode_id: value.inode_id,
+                    entry_type: value.entry_type,
+                }));
+            }
+        }
+
         Ok(self
             .materialize_dir(parent)?
             .into_iter()

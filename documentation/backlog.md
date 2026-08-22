@@ -36,6 +36,10 @@ Since then, and previously listed here as outstanding:
   is not a recipient genuinely cannot read the content. Every device now has an X25519
   sealing key alongside its signing key, enrolled together, and `nexusfs share` re-seals
   existing files to the peers enrolled now. On-disk format v3 and PROTOCOL_VERSION 3.
+- **Looking up one name without listing the directory.** `lookup` asks the map for the
+  key it wants instead of materializing every entry and searching the result — 2.2x on a
+  wide directory, and since a path lookup is nearly the whole cost of reading a small
+  file, reads fell with it.
 - **Collecting orphaned records.** Unlinking used to leave an inode's records behind
   forever. `gc` now sweeps them from the same reachability walk, counted separately
   because a wrongly deleted record — unlike a blob — cannot be fetched back from a peer.
@@ -123,8 +127,12 @@ Peer enrolment out of band is **done**: `nexusfs peer identity|list|add|remove` 
 
 - Update the Merkle tree incrementally. The inode map is maintained now, but the
   commitment over it is rebuilt each apply — linear work for a one-entry change.
-- Cache directory maps. `resolve_path` re-reads and re-materializes each directory per
-  path component.
+- Store a directory as one row per entry rather than one postcard blob. Measurement
+  moved this item: the cost was never per *path component* — a seven-component lookup is
+  0.008ms — it is per *entry in the directory*, because the whole map is decoded to find
+  one name. Skipping materialization took a 2000-entry lookup from 1.707ms to 0.772ms,
+  and what remains is 0.780ms of decoding alone. Going below that floor is an on-disk
+  format change and a different CRDT merge path.
 
 ### Storage Maintenance
 
@@ -149,7 +157,7 @@ on-disk format stamp, and `nexusfs peer` with explicit key enrolment and `--rota
 - Add admin API coverage beyond the minimal routes.
 - Add transport failure and retry tests.
 
-The suite is 235 tests today, covering convergence, conflict naming, encryption,
+The suite is 237 tests today, covering convergence, conflict naming, encryption,
 replication over both an in-memory pipe and real QUIC sockets, the scheduler's decision
 table, collection safety, format refusals in both directions, and the Merkle commitment
 including the forgeries an absence proof must refuse.
@@ -183,8 +191,8 @@ The most effective execution order right now is:
    WebDAV reaches the same user-visible outcome without a kernel extension.
 2. An incremental Merkle tree, so a one-entry change costs O(log n) rather than a
    rebuild. Structural, but an apply is fsync-bound today, so measure before starting.
-3. Cached directory maps, since `resolve_path` re-materializes each directory once per
-   path component. Small, and the last easy win in the read path.
+3. One KV row per directory entry, so a lookup in a wide directory stops decoding the
+   whole directory. Measured floor: 0.78ms at 2000 entries, all of it decode.
 
 ## Definition Of “Ready To Leave Backlog”
 

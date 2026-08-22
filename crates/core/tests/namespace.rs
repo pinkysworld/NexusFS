@@ -658,3 +658,79 @@ fn a_rename_waits_for_the_creation_it_observed() {
         reverse.compute_state_root().unwrap()
     );
 }
+
+#[test]
+fn a_conflict_name_is_still_findable_after_the_fast_lookup_path() {
+    // `lookup` answers a plain name straight from the map and only falls back to a full
+    // materialization for names no key matches. Conflict names are *derived* rather than
+    // stored, so they can only be found the slow way — and must still be found.
+    let dir = tempfile::tempdir().unwrap();
+    let core = bootstrapped(dir.path(), 0xA1);
+    let a = Identity::generate();
+    let b = Identity::generate();
+
+    // Two devices independently create the same name: both survive, one renamed.
+    let one = signed_op(
+        &a,
+        0xA1,
+        1,
+        1_000,
+        FsOpKind::Mkdir {
+            parent: ROOT_INODE,
+            name: "shared".into(),
+            mode: 0o40755,
+        },
+    );
+    let two = signed_op(
+        &b,
+        0xB2,
+        1,
+        1_001,
+        FsOpKind::Mkdir {
+            parent: ROOT_INODE,
+            name: "shared".into(),
+            mode: 0o40755,
+        },
+    );
+    core.apply_op(&one).unwrap();
+    core.apply_op(&two).unwrap();
+
+    let entries = core.read_dir_path("/").unwrap();
+    assert_eq!(entries.len(), 2, "both directories survive");
+    let conflict = entries
+        .iter()
+        .find(|e| e.name != "shared")
+        .expect("one of them is renamed");
+
+    // Both reachable by name: the plain one through the fast path, the renamed one
+    // through the fallback.
+    let plain = core.lookup(ROOT_INODE, "shared").unwrap();
+    assert!(plain.is_some(), "the winner keeps the plain name");
+    let renamed = core.lookup(ROOT_INODE, &conflict.name).unwrap();
+    assert_eq!(
+        renamed.map(|e| e.inode_id),
+        Some(conflict.inode_id),
+        "a derived conflict name must still resolve"
+    );
+
+    // And through the path API, which is what a user actually types.
+    assert!(core.resolve_path("/shared").unwrap().is_some());
+    assert!(core
+        .resolve_path(&format!("/{}", conflict.name))
+        .unwrap()
+        .is_some());
+}
+
+#[test]
+fn a_name_that_does_not_exist_is_still_absent() {
+    let dir = tempfile::tempdir().unwrap();
+    let core = bootstrapped(dir.path(), 0xA1);
+    let id = Identity::generate();
+    core.mkdir_p(&id, "/present", 1_000).unwrap();
+
+    assert!(core.lookup(ROOT_INODE, "absent").unwrap().is_none());
+    assert!(core.resolve_path("/absent").unwrap().is_none());
+    // An unlinked name must not come back through the fast path either.
+    core.remove_path(&id, "/present", 2_000).unwrap();
+    assert!(core.lookup(ROOT_INODE, "present").unwrap().is_none());
+}
