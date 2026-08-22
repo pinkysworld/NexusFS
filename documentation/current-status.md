@@ -751,7 +751,8 @@ the commitment over it is still rebuilt per apply — linear in the filesystem f
 that touched one entry. Weigh it against the fact that an apply is currently fsync-bound,
 so the end-to-end gain would be small.
 
-**Also open, smaller.** Compressed proof batches, where overlapping paths share their
-upper steps. Push notification, so peers do not wait out the poll interval. Prioritising
-which deferred content to fetch first under a capped budget. Cached directory maps, since
-`resolve_path` re-materializes each directory once per path component.
+**Also open, smaller.** Cached directory maps, since `resolve_path` re-materializes each
+directory once per path component — the last easy win in the read path. Compressed proof
+batches, where overlapping paths share their upper steps. Prioritising which deferred
+content to fetch first under a capped budget. Delta-encoded operation ranges rather than
+whole-operation batches.
