@@ -145,6 +145,23 @@ pub enum Command {
         apply: bool,
     },
 
+    /// Re-encrypt content under fresh keys, sealed to the peers enrolled now.
+    ///
+    /// This is what makes removing a peer mean something: `share` adds recipients and
+    /// cannot take one away, because the ciphertext does not change. Rotation changes
+    /// it. Expensive — every byte is read, encrypted again and written again — and it
+    /// cannot withdraw what a device already copied.
+    Rotate {
+        #[arg(long)]
+        config: PathBuf,
+        /// Rotate one file rather than everything encrypted.
+        #[arg(long)]
+        path: Option<String>,
+        /// Actually re-encrypt. Without this, report what would be done.
+        #[arg(long)]
+        apply: bool,
+    },
+
     /// Move or rename an entry.
     Mv {
         #[arg(long)]

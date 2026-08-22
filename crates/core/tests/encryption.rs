@@ -665,3 +665,193 @@ fn resealing_skips_files_this_node_cannot_read() {
     assert_eq!(report.unreadable, 1);
     assert_eq!(report.resealed, 0);
 }
+
+#[test]
+fn rotation_locks_out_a_recipient_that_has_been_removed() {
+    // The property `share` cannot provide, and the reason rotation exists. Re-sealing
+    // adds recipients; only re-encrypting takes one away.
+    let dir = tempfile::tempdir().unwrap();
+    let owner = Identity::generate();
+    let leaver = Identity::generate();
+    let core = sealing_node(dir.path(), 0x01, &owner);
+
+    core.enrol_peer(
+        nexusfs_proto::DeviceId(0xB2),
+        &leaver.pubkey_bytes(),
+        Some(&leaver.sealing_pubkey()),
+        false,
+    )
+    .unwrap();
+    core.write_file(&owner, "/s.txt", b"sensitive", now_ms())
+        .unwrap();
+
+    let opens_for = |id: &Identity| {
+        let (inode, _, _) = core.stat_file("/s.txt").unwrap().unwrap();
+        let hash = core
+            .load_inode(inode)
+            .unwrap()
+            .unwrap()
+            .content
+            .value
+            .node_hash
+            .unwrap();
+        let Some(Object::FileNode(f)) = core.get_object(&hash).unwrap() else {
+            panic!("expected a file node");
+        };
+        f.encryption
+            .unwrap()
+            .recipients
+            .iter()
+            .any(|e| nexusfs_crypto::envelope::open(id.sealing_secret(), e).is_ok())
+    };
+
+    assert!(opens_for(&leaver), "enrolled, so a recipient");
+
+    // Revoking stops them receiving *new* content, and does nothing to what exists.
+    core.revoke_peer(nexusfs_proto::DeviceId(0xB2)).unwrap();
+    assert!(
+        opens_for(&leaver),
+        "revocation alone cannot change a file already written"
+    );
+
+    // Re-sealing does not help either: it adds recipients, never removes.
+    core.reseal_to_recipients(&owner, now_ms(), false).unwrap();
+    assert!(
+        !opens_for(&leaver),
+        "re-sealing to the new set drops the removed recipient's envelope"
+    );
+
+    // But the *content* is unchanged, so the old ciphertext they may have copied still
+    // decrypts with the envelope they kept. Rotation is what changes that.
+    let before_rotation = {
+        let (inode, _, _) = core.stat_file("/s.txt").unwrap().unwrap();
+        let hash = core
+            .load_inode(inode)
+            .unwrap()
+            .unwrap()
+            .content
+            .value
+            .node_hash
+            .unwrap();
+        let Some(Object::FileNode(f)) = core.get_object(&hash).unwrap() else {
+            panic!("expected a file node");
+        };
+        f.chunks.iter().map(|c| c.hash).collect::<Vec<_>>()
+    };
+
+    let report = core.rotate_content(&owner, None, now_ms(), false).unwrap();
+    assert_eq!(report.rotated, 1);
+
+    let after_rotation = {
+        let (inode, _, _) = core.stat_file("/s.txt").unwrap().unwrap();
+        let hash = core
+            .load_inode(inode)
+            .unwrap()
+            .unwrap()
+            .content
+            .value
+            .node_hash
+            .unwrap();
+        let Some(Object::FileNode(f)) = core.get_object(&hash).unwrap() else {
+            panic!("expected a file node");
+        };
+        f.chunks.iter().map(|c| c.hash).collect::<Vec<_>>()
+    };
+    assert_ne!(
+        before_rotation, after_rotation,
+        "rotation must produce different ciphertext, or it withdraws nothing"
+    );
+    assert!(!opens_for(&leaver));
+    assert_eq!(core.read_file_path("/s.txt").unwrap(), b"sensitive");
+}
+
+#[test]
+fn a_rotation_survey_changes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let id = Identity::generate();
+    let core = sealing_node(dir.path(), 0x01, &id);
+    core.write_file(&id, "/a.txt", b"hello", now_ms()).unwrap();
+
+    let hash_before = {
+        let (inode, _, _) = core.stat_file("/a.txt").unwrap().unwrap();
+        core.load_inode(inode)
+            .unwrap()
+            .unwrap()
+            .content
+            .value
+            .node_hash
+    };
+
+    let survey = core.rotate_content(&id, None, now_ms(), true).unwrap();
+    assert_eq!(survey.rotated, 1);
+    assert_eq!(survey.bytes, 5);
+    assert!(survey.dry_run);
+
+    let hash_after = {
+        let (inode, _, _) = core.stat_file("/a.txt").unwrap().unwrap();
+        core.load_inode(inode)
+            .unwrap()
+            .unwrap()
+            .content
+            .value
+            .node_hash
+    };
+    assert_eq!(hash_before, hash_after, "a survey must not write");
+}
+
+#[test]
+fn rotating_one_path_leaves_the_others_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let id = Identity::generate();
+    let core = sealing_node(dir.path(), 0x01, &id);
+    core.write_file(&id, "/a.txt", b"aaa", now_ms()).unwrap();
+    core.write_file(&id, "/b.txt", b"bbb", now_ms()).unwrap();
+
+    let node_of = |path: &str| {
+        let (inode, _, _) = core.stat_file(path).unwrap().unwrap();
+        core.load_inode(inode)
+            .unwrap()
+            .unwrap()
+            .content
+            .value
+            .node_hash
+    };
+    let b_before = node_of("/b.txt");
+
+    let report = core
+        .rotate_content(&id, Some("/a.txt"), now_ms(), false)
+        .unwrap();
+    assert_eq!(report.rotated, 1);
+    assert_eq!(report.files_scanned, 1);
+    assert_eq!(node_of("/b.txt"), b_before, "the other file is untouched");
+    assert_eq!(core.read_file_path("/a.txt").unwrap(), b"aaa");
+    assert_eq!(core.read_file_path("/b.txt").unwrap(), b"bbb");
+}
+
+#[test]
+fn rotation_skips_what_this_node_cannot_read() {
+    let writer_dir = tempfile::tempdir().unwrap();
+    let reader_dir = tempfile::tempdir().unwrap();
+    let writer_id = Identity::generate();
+    let outsider = Identity::generate();
+
+    let writer = sealing_node(writer_dir.path(), 0x01, &writer_id);
+    writer
+        .write_file(&writer_id, "/s.txt", b"not for you", now_ms())
+        .unwrap();
+
+    let reader = bootstrapped(reader_dir.path(), 0x02).with_sealing_key(outsider.sealing_secret());
+    for (hash, _) in writer.stores.blobs.list().unwrap() {
+        let bytes = writer.stores.blobs.get(&hash).unwrap().unwrap();
+        reader.stores.blobs.put(hash, &bytes).unwrap();
+    }
+    for op in writer.all_ops().unwrap() {
+        reader.apply_op(&op).unwrap();
+    }
+
+    let report = reader
+        .rotate_content(&outsider, None, now_ms(), true)
+        .unwrap();
+    assert_eq!(report.unreadable, 1);
+    assert_eq!(report.rotated, 0);
+}

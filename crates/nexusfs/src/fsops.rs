@@ -228,6 +228,54 @@ pub async fn run_share(config_path: PathBuf, apply: bool) -> Result<()> {
     Ok(())
 }
 
+/// Re-encrypt content under fresh keys, sealed to the peers enrolled now.
+pub async fn run_rotate(config_path: PathBuf, path: Option<String>, apply: bool) -> Result<()> {
+    let (core, identity) = open_repo(&config_path)?;
+    let recipients = core.sealing_recipient_keys()?;
+    let report = core.rotate_content(&identity, path.as_deref(), nexusfs_core::now_ms(), !apply)?;
+
+    println!("recipients:     {} (this node included)", recipients.len());
+    println!("files scanned:  {}", report.files_scanned);
+    println!("  to rotate:    {}", report.rotated);
+    if report.plaintext > 0 {
+        println!("  plaintext:    {} (no key to rotate)", report.plaintext);
+    }
+    if report.unreadable > 0 {
+        println!(
+            "  unreadable:   {} (this node is not a recipient)",
+            report.unreadable
+        );
+    }
+    println!("content:        {}", human_bytes(report.bytes));
+
+    if report.dry_run {
+        if report.rotated > 0 {
+            println!(
+                "\nnothing was written. Re-run with --apply to re-encrypt {}.",
+                human_bytes(report.bytes)
+            );
+        } else {
+            println!("\nnothing to rotate.");
+        }
+    } else {
+        println!(
+            "\nrotated {} file(s), re-encrypting {}",
+            report.rotated,
+            human_bytes(report.bytes)
+        );
+        println!("run `nexusfs gc --apply` to reclaim the superseded ciphertext");
+    }
+
+    // The limit of what rotation can do, stated on every run. An operator who believes
+    // this reaches a peer's existing copy will make a decision they would not otherwise
+    // make.
+    println!(
+        "\nnote: this withdraws access to the content from here on. A device that already \n\
+         copied the old ciphertext and held a key for it can still read that version."
+    );
+    Ok(())
+}
+
 fn human_bytes(n: u64) -> String {
     const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
     let mut value = n as f64;

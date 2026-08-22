@@ -48,6 +48,11 @@ async fn main() -> Result<()> {
         Command::Migrate { config } => fsops::run_migrate(config).await,
         Command::Peer { action } => fsops::run_peer(action).await,
         Command::Share { config, apply } => fsops::run_share(config, apply).await,
+        Command::Rotate {
+            config,
+            path,
+            apply,
+        } => fsops::run_rotate(config, path, apply).await,
         Command::Prove {
             config,
             path,

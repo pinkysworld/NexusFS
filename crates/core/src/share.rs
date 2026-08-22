@@ -29,6 +29,23 @@
 //! Files this node cannot itself read are skipped rather than failing the run. A node
 //! that is not a recipient cannot recover the file key, so it has nothing to re-seal
 //! with; reporting that as a count is more useful than stopping halfway through.
+//!
+//! # Rotation, which is the other half
+//!
+//! [`CoreState::rotate_content`] is what re-sealing is not: it mints a *fresh* file key,
+//! re-encrypts the content under it, and seals that to the current recipients. Every
+//! chunk changes, so every hash naming it changes, and the old ciphertext becomes
+//! garbage this node will collect.
+//!
+//! That is what makes removing a peer mean something. It is still not time travel: a
+//! device that copied the old ciphertext and held an envelope for it can read that
+//! version for as long as it keeps the bytes. What rotation withdraws is access to the
+//! content *from here on* — this node's copy, and every update to it. Nothing can
+//! withdraw what somebody already took.
+//!
+//! It is expensive in a way re-sealing is not — every byte is read, encrypted again and
+//! written again — so it is a separate command with its own survey, rather than a flag
+//! on one that costs almost nothing.
 
 use anyhow::{Context, Result};
 
@@ -53,6 +70,22 @@ pub struct ShareReport {
     pub unreadable: usize,
     /// Files stored as plaintext, which have no envelopes to bring up to date.
     pub plaintext: usize,
+    /// True when this was a survey and nothing was written.
+    pub dry_run: bool,
+}
+
+/// What one rotation pass did.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RotateReport {
+    pub files_scanned: usize,
+    /// Files re-encrypted, each of which emitted one operation.
+    pub rotated: usize,
+    /// Encrypted files this node could not open, and so could not rotate.
+    pub unreadable: usize,
+    /// Files stored as plaintext, which have no key to rotate.
+    pub plaintext: usize,
+    /// Content bytes that were, or would be, re-encrypted.
+    pub bytes: u64,
     /// True when this was a survey and nothing was written.
     pub dry_run: bool,
 }
@@ -138,6 +171,96 @@ impl CoreState {
                 now_ms,
             )?;
             report.resealed += 1;
+        }
+
+        Ok(report)
+    }
+
+    /// Re-encrypt content under fresh keys, sealed to the current recipients.
+    ///
+    /// Surveys when `dry_run`. `only_path` limits the run to one file; `None` rotates
+    /// everything encrypted.
+    ///
+    /// See the module docs: this withdraws access to the content from here on, and
+    /// cannot withdraw what a device already copied.
+    pub fn rotate_content(
+        &self,
+        identity: &Identity,
+        only_path: Option<&str>,
+        now_ms: u64,
+        dry_run: bool,
+    ) -> Result<RotateReport> {
+        let mut report = RotateReport {
+            dry_run,
+            ..Default::default()
+        };
+
+        if self.cipher.is_none() && self.sealing_secret.is_none() {
+            anyhow::bail!(
+                "this node has no key material configured, so there is nothing to rotate"
+            );
+        }
+
+        let target = match only_path {
+            Some(path) => {
+                let (inode, _, _) = self
+                    .stat_file(path)?
+                    .ok_or_else(|| anyhow::anyhow!("no such file: {path}"))?;
+                Some(inode)
+            }
+            None => None,
+        };
+
+        for (inode, node_hash) in self.encrypted_files()? {
+            if target.is_some_and(|want| want != inode) {
+                continue;
+            }
+            report.files_scanned += 1;
+
+            let Some(Object::FileNode(file)) = self.get_object(&node_hash)? else {
+                continue;
+            };
+            if file.encryption.is_none() {
+                report.plaintext += 1;
+                continue;
+            }
+
+            // Reading is what proves this node can rotate the file at all, and it is
+            // also the content that has to be re-encrypted — so it is not a wasted
+            // check even on the survey.
+            let Ok(plain) = self.materialize_file(&file) else {
+                report.unreadable += 1;
+                continue;
+            };
+
+            report.bytes += plain.len() as u64;
+            if dry_run {
+                report.rotated += 1;
+                continue;
+            }
+
+            // A fresh key comes from `store_content`, which mints one per write — the
+            // same property that makes deriving chunk nonces from the key safe.
+            let (chunks, encryption) = self.store_content(&plain)?;
+            self.apply_local(
+                identity,
+                FsOpKind::Write {
+                    inode,
+                    offset: 0,
+                    chunks,
+                    new_size: plain.len() as u64,
+                    encryption,
+                },
+                now_ms,
+            )?;
+            report.rotated += 1;
+        }
+
+        if only_path.is_some() && report.files_scanned == 0 {
+            anyhow::bail!(
+                "{} is not an encrypted file, so it has no key to rotate",
+                only_path.unwrap_or_default()
+            );
         }
 
         Ok(report)
