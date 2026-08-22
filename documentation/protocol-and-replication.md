@@ -18,6 +18,13 @@ The session is pull-based and one-directional: a node asks a peer for what it la
 nothing is pushed, so each session has one owner of the loop and no negotiation about who
 sends next. Convergence comes from each node pulling from the other.
 
+What *is* pushed is a hint. A node that applies an operation of its own sends its peers a
+`Notify` carrying its clock summary — no operations, no proof of anything. A peer that is
+behind wakes its sync loop and pulls in the ordinary way, verifying everything; a peer
+that is current answers "not behind" and does nothing. Against a 60-second poll interval
+a write reaches the other node in 0.32 seconds, and the state machine has gained no new
+entrance.
+
 Each pass is bounded by a budget the energy scheduler supplies, which can skip content
 entirely or stop at a byte ceiling and defer the rest. A node that took every operation
 and no content still knows what exists and where — and a read of a deferred file fetches

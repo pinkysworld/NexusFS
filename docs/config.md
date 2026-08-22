@@ -21,6 +21,11 @@ NexusFS uses a single TOML config file. The annotated baseline is
 - `sync_interval_secs`: seconds between pulls from each peer. Default 15. The energy
   scheduler multiplies this when it decides to back off.
 
+  This is the *fallback*, not the usual latency: a peer that writes something tells its
+  configured peers immediately, and they pull then rather than waiting. The interval is
+  what catches everything else — a peer that could not be reached when it wrote, or one
+  that pulls from this node without this node pulling from it.
+
 Replication only runs when the binary is built with the `quic` feature. A malformed
 `listen` address takes replication down and leaves the rest of the daemon running,
 because a wrong config is when an operator most wants the console.

@@ -25,6 +25,9 @@ remaining research tracks are named in `./roadmap.md` rather than left implied. 
 
 Since then, and previously listed here as outstanding:
 
+- **Push notification.** A write reaches a peer in 0.32s against a 60s poll interval,
+  through a hint that provokes an ordinary verified pull rather than carrying anything
+  itself.
 - **Key rotation.** `nexusfs rotate` re-encrypts content under fresh keys sealed to the
   recipients enrolled now, which is what removing a peer needs: re-sealing adds
   recipients and cannot take one away, because the ciphertext does not change.
@@ -98,8 +101,9 @@ above.
 
 ### Replication Follow-Ups
 
-- Push notification of new operations, so peers do not wait for the poll interval.
 - Delta-encoded operation ranges rather than whole-op batches.
+- Notify peers that pull from this node but that it does not pull from. Notification
+  goes to configured peers, which is who this node knows about.
 - Prioritise which deferred content to fetch first when the budget is capped — currently
   the order is whatever `missing_chunk_hashes` returns, not what a user is likely to want.
 
@@ -145,7 +149,7 @@ on-disk format stamp, and `nexusfs peer` with explicit key enrolment and `--rota
 - Add admin API coverage beyond the minimal routes.
 - Add transport failure and retry tests.
 
-The suite is 231 tests today, covering convergence, conflict naming, encryption,
+The suite is 235 tests today, covering convergence, conflict naming, encryption,
 replication over both an in-memory pipe and real QUIC sockets, the scheduler's decision
 table, collection safety, format refusals in both directions, and the Merkle commitment
 including the forgeries an absence proof must refuse.
@@ -174,13 +178,13 @@ including the forgeries an absence proof must refuse.
 
 The most effective execution order right now is:
 
-1. Push notification of new operations, so peers do not wait out the poll interval. The
-   most visible remaining latency in replication.
-2. A mountable interface, if one is wanted. See the note in `./current-status.md`:
+1. A mountable interface, if one is wanted. See the note in `./current-status.md`:
    POSIX/FUSE is not owed — M2 asked for *one* facade and the S3 one shipped — and
    WebDAV reaches the same user-visible outcome without a kernel extension.
-3. An incremental Merkle tree, so a one-entry change costs O(log n) rather than a
+2. An incremental Merkle tree, so a one-entry change costs O(log n) rather than a
    rebuild. Structural, but an apply is fsync-bound today, so measure before starting.
+3. Cached directory maps, since `resolve_path` re-materializes each directory once per
+   path component. Small, and the last easy win in the read path.
 
 ## Definition Of “Ready To Leave Backlog”
 

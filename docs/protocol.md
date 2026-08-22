@@ -5,11 +5,16 @@ This protocol runs over **QUIC** (Quinn). It is designed to be:
 - secure by default (auth + integrity)
 - extensible for research features (ZK proofs, privacy-preserving discovery, DTN routing)
 
-> This began as a v0 draft. The implementation now runs at `PROTOCOL_VERSION = 3`
-> (`crates/net/src/replication.rs`). Version 2 came with the Merkle state commitment and
-> version 3 with per-recipient key sealing, which changed the shape a `Write` uses to
-> describe how its file key is protected. Either way a mismatched peer refuses the
-> handshake rather than syncing and then disagreeing forever. Still to come: compression, streaming blob transfer, range requests, and
+> This began as a v0 draft. The implementation now runs at `PROTOCOL_VERSION = 4`
+> (`crates/net/src/replication.rs`). Version 2 came with the Merkle state commitment,
+> version 3 with per-recipient key sealing — which changed the shape a `Write` uses to
+> describe how its file key is protected — and version 4 with `Notify`/`Noted` for push
+> notification. A mismatched peer refuses the handshake rather than syncing and then
+> disagreeing forever.
+>
+> New message variants are **appended** to `Msg`, never inserted. Postcard encodes an
+> enum by variant index, so inserting one renumbers every variant after it, and a
+> renumbered message decodes as a different message rather than failing. Still to come: compression, streaming blob transfer, range requests, and
 > compressed proof batches.
 >
 > Two properties the draft does not state and the implementation enforces: the clock
@@ -42,7 +47,7 @@ payload := postcard(MessageEnvelope)
 
 ```rust
 struct MessageEnvelope {
-  protocol_version: u16,      // currently 3
+  protocol_version: u16,      // currently 4
   msg_id: u64,                // per-connection monotonic id
   reply_to: Option<u64>,      // for request/response matching
   payload: Msg,               // enum

@@ -20,7 +20,7 @@ A node that skipped content to save power fetches it on demand when someone read
 rather than waiting for the next unconstrained pass.
 
 Not yet implemented: the POSIX/FUSE facade, and zero-knowledge proving — the commitment
-layer is deliberately not that, for reasons recorded below. 231 tests pass, clippy is
+layer is deliberately not that, for reasons recorded below. 235 tests pass, clippy is
 clean, and every feature combination of the binary is built in CI.
 
 ## Implemented Now
@@ -139,9 +139,22 @@ transfer counts.
 Each pass is bounded by a budget the energy scheduler supplies (see below), which can
 skip content entirely or stop at a byte ceiling and defer the rest to a later pass.
 
-Not implemented: push notification of new operations (peers poll on an interval),
-delta-encoded operation ranges, and prioritising *which* deferred content to fetch first
-when the budget is capped.
+Peers no longer wait out a poll interval to learn about a write. A node that applies an
+operation of its own tells its configured peers, carrying its clock summary so a peer
+that is already current answers "not behind" and does no work. The notification carries
+no operations and proves nothing — it provokes a pull, and that pull verifies everything
+a scheduled pass would. Measured against a 60-second interval, a write reaches the other
+node in 0.32 seconds.
+
+Three things keep that from becoming a lever on how much work a node does: a peer
+notifying in a tight loop gets one pass per 500ms and the rest are slept through, an
+unenrolled device is refused at the handshake, and applying a *remote* operation
+announces nothing — so two peers cannot notify each other in a cycle. Only configured
+peers are told, since a node knows who it pulls from and not who pulls from it, so a
+one-directional pairing still polls on the side that was never told about.
+
+Not implemented: delta-encoded operation ranges, and prioritising *which* deferred
+content to fetch first when the budget is capped.
 
 ### Encryption At Rest
 
@@ -560,7 +573,7 @@ daemon uses between real nodes.
 
 ### Test Coverage
 
-231 tests, including order-independent convergence (the same operation set applied in
+235 tests, including order-independent convergence (the same operation set applied in
 different orders yields an identical state root), idempotent re-apply, pending-op drain,
 concurrent-create conflict naming, concurrent-write resolution, rename-vs-unlink,
 subtree-cycle refusal, restart persistence, S3 key mapping and pagination, and
@@ -621,8 +634,10 @@ not built, grouped by what they would buy.
   identical to home broadband, and a VPN hides the link beneath it on every platform.
   `energy.link_cost` exists to work around both; closing them properly needs more than a
   default-route lookup.
-- **Push notification of new operations**, so peers do not wait out the poll interval.
 - **Delta-encoded operation ranges** rather than whole-operation batches.
+- **Telling peers that pull from us but that we do not pull from.** Notification goes to
+  configured peers, which is who this node knows about; the other side of a
+  one-directional pairing still polls.
 - **Prioritising which deferred content to fetch first** when the budget is capped.
   Today the order is whatever `missing_chunk_hashes` returns, not what a user is likely
   to want next.

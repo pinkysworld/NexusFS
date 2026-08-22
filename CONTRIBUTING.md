@@ -9,7 +9,7 @@ it blocks what shipped.
 ## Ground rules
 
 - Keep crate boundaries clean (see [`docs/architecture.md`](docs/architecture.md)).
-- Add tests for every feature. The suite is 231 tests and the interesting ones are
+- Add tests for every feature. The suite is 235 tests and the interesting ones are
   properties, not smoke tests — order-independent convergence, idempotent re-apply,
   what a proof must refuse.
 - Do not break the canonical encoding without bumping object versions. `postcard`

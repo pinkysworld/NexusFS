@@ -16,7 +16,7 @@ single binary.
 > entries can be proved individually — including proving that one is **absent**, which
 > makes a deletion demonstrable. A node that skipped content to save power **fetches it
 > on demand** when someone reads. The POSIX/FUSE facade is **not implemented yet**, and
-> the commitment layer is **not zero-knowledge** — see below. 231 tests, clippy clean,
+> the commitment layer is **not zero-knowledge** — see below. 235 tests, clippy clean,
 > every feature combination built in CI. Full detail in
 > [`documentation/current-status.md`](documentation/current-status.md).
 
@@ -110,6 +110,11 @@ How it works: a node sends its clock summary, the peer replies with the operatio
 lacks, and only then does it request the chunks those operations reference. Operation
 signatures and chunk hashes are both verified before anything is accepted, using the
 same apply path local writes use.
+
+**Peers do not wait out the interval.** A node that writes something tells its configured
+peers, sending its clock summary so a peer that is already current does no work. The
+notification carries no operations and proves nothing — it provokes an ordinary verified
+pull. Against a 60-second poll interval, a write reaches the other node in **0.32s**.
 
 Peer identity is an ed25519 key pinned on first use — TLS provides transport encryption
 only, and certificates are not the trust anchor. A device presenting a different key
