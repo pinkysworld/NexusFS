@@ -20,7 +20,7 @@ A node that skipped content to save power fetches it on demand when someone read
 rather than waiting for the next unconstrained pass.
 
 Not yet implemented: the POSIX/FUSE facade, and zero-knowledge proving — the commitment
-layer is deliberately not that, for reasons recorded below. 200 tests pass, clippy is
+layer is deliberately not that, for reasons recorded below. 205 tests pass, clippy is
 clean, and every feature combination of the binary is built in CI.
 
 ## Implemented Now
@@ -275,6 +275,20 @@ snapshot, which orphans the previous `SnapshotRoot` and one `DirNode` per direct
 the path to the change — so a repository accrues garbage per *operation*, and even an
 append-only history has objects to reclaim.
 
+Records are collected as well as blobs. Unlinking a file removes the entry from its
+parent's map and used to leave the file's own records — its inode record, its parent
+pointer, and for a directory its entry map — behind forever, unreferenced and invisible.
+They are swept from the same reachability walk but counted separately in the report,
+because the failure modes are not symmetric: a wrongly deleted blob can be fetched from
+a peer again, and a wrongly deleted record cannot, since the operation that produced it
+is already marked applied.
+
+Reachability for records is its own walk rather than a reuse of the object walk, and the
+difference is the case that matters: a file created but not yet written has no
+`FileNode`, so it appears in no inode map — and its record must survive, or the write
+still in flight would apply into nothing. A parked operation's inodes are roots for the
+same reason.
+
 `nexusfs gc` surveys by default and deletes only with `--apply`. It refuses outright
 when the repository has no head or no root inode record: those indicate corruption or a
 half-finished restore, and marking cannot distinguish "everything is garbage" from
@@ -495,7 +509,7 @@ daemon uses between real nodes.
 
 ### Test Coverage
 
-200 tests, including order-independent convergence (the same operation set applied in
+205 tests, including order-independent convergence (the same operation set applied in
 different orders yields an identical state root), idempotent re-apply, pending-op drain,
 concurrent-create conflict naming, concurrent-write resolution, rename-vs-unlink,
 subtree-cycle refusal, restart persistence, S3 key mapping and pagination, and
@@ -586,9 +600,8 @@ not built, grouped by what they would buy.
 
 ### Storage Maintenance
 
-- **Collect orphaned inode and directory records**, not only blobs. Collection reclaims
-  content but leaves the KV entries of unlinked inodes behind.
-- **Compaction policy**, which does not exist in any form.
+- **Compaction policy**, which does not exist in any form. `gc` reclaims what nothing
+  refers to; nothing compacts the database underneath it.
 
 ### Product Surface
 

@@ -49,6 +49,22 @@
 //!
 //! The same caution is why the admin endpoint only ever surveys: the daemon could write
 //! a blob between the mark and the sweep, and that blob would look like garbage.
+//!
+//! # Records, not only blobs
+//!
+//! Unlinking a file removes the entry from its parent's map. The file's own records —
+//! its inode record, its parent pointer, and for a directory its entry map — are left
+//! behind, unreferenced and invisible, and nothing ever removed them. A repository that
+//! creates and deletes files in a loop grew key-value state forever while reporting
+//! nothing to collect.
+//!
+//! These are swept from the same reachability walk, but they are treated with more
+//! caution than blobs, because the failure modes are not symmetric. A wrongly deleted
+//! blob can be fetched again from a peer that still holds it. A wrongly deleted record
+//! cannot: applying is idempotent and the operation that produced it is already marked
+//! applied, so replaying the log will not rebuild it. That asymmetry is why records are
+//! counted separately in the report rather than folded into one number an operator
+//! cannot take apart.
 
 use std::collections::BTreeSet;
 
@@ -60,8 +76,21 @@ use nexusfs_proto::FsOpKind;
 use nexusfs_storage::Hash;
 
 use crate::inode::ROOT_INODE;
+use crate::namespace::{
+    inode_from_key, CF_STATE, DIR_PREFIX, IMAP_PREFIX, INODE_PREFIX, PARENT_PREFIX,
+};
 use crate::object::Object;
 use crate::state::CoreState;
+
+/// Backstop against a malformed tree walking forever.
+const MAX_RECORD_SCAN: usize = 1_000_000;
+
+/// What a record survey found.
+#[derive(Debug, Default)]
+struct OrphanedRecords {
+    scanned: usize,
+    keys: Vec<Vec<u8>>,
+}
 
 /// What one collection pass found, and what it did about it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -74,6 +103,12 @@ pub struct GcReport {
     pub bytes_reclaimable: u64,
     pub deleted: usize,
     pub bytes_deleted: u64,
+    /// Namespace records examined: one per directory map, inode record and parent
+    /// pointer held in the state column family.
+    pub records_scanned: usize,
+    /// Records belonging to inodes the tree can no longer reach.
+    pub records_unreachable: usize,
+    pub records_deleted: usize,
     /// True when this was a survey and nothing was removed.
     pub dry_run: bool,
     /// Set when the sweep declined to delete despite not being a dry run.
@@ -83,7 +118,7 @@ pub struct GcReport {
 impl GcReport {
     /// Whether anything would be, or was, reclaimed.
     pub fn has_garbage(&self) -> bool {
-        self.unreachable > 0
+        self.unreachable > 0 || self.records_unreachable > 0
     }
 }
 
@@ -120,6 +155,63 @@ impl CoreState {
             if let FsOpKind::Write { chunks, .. } = &op.kind {
                 for chunk in chunks {
                     reachable.insert(chunk.hash);
+                }
+            }
+        }
+
+        Ok(reachable)
+    }
+
+    /// Every inode the repository can still reach.
+    ///
+    /// A separate walk from [`reachable_hashes`], and deliberately so: that one answers
+    /// "which objects are referenced", and skips a file with no content because there
+    /// is no object to name. This one answers "which inodes exist", and such a file
+    /// very much does — its record must survive the write that is still coming.
+    pub fn reachable_inodes(&self) -> Result<BTreeSet<u128>> {
+        let mut reachable = BTreeSet::new();
+        // The root is reachable by definition; a repository without it is refused
+        // before this ever runs.
+        reachable.insert(ROOT_INODE);
+
+        let mut queue = vec![ROOT_INODE];
+        while let Some(dir) = queue.pop() {
+            for entry in self.materialize_dir(dir)? {
+                if !reachable.insert(entry.inode_id) {
+                    // Already seen. Also the cycle guard: a directory tree that loops
+                    // would otherwise re-queue forever.
+                    continue;
+                }
+                if entry.entry_type == crate::object::EntryType::Dir {
+                    queue.push(entry.inode_id);
+                }
+                if reachable.len() > MAX_RECORD_SCAN {
+                    anyhow::bail!("namespace walk exceeded {MAX_RECORD_SCAN} inodes");
+                }
+            }
+        }
+
+        // Inodes a parked operation names. Such an operation has not been applied, so
+        // it may be about state that is only partly present — and when it does apply it
+        // must find what it expects. Adding these costs nothing when they do not exist.
+        for op in self.pending_ops()? {
+            match &op.kind {
+                FsOpKind::CreateFile { parent, .. } | FsOpKind::Mkdir { parent, .. } => {
+                    reachable.insert(*parent);
+                }
+                FsOpKind::Write { inode, .. } | FsOpKind::SetAttr { inode, .. } => {
+                    reachable.insert(*inode);
+                }
+                FsOpKind::Rename {
+                    old_parent,
+                    new_parent,
+                    ..
+                } => {
+                    reachable.insert(*old_parent);
+                    reachable.insert(*new_parent);
+                }
+                FsOpKind::Unlink { parent, .. } => {
+                    reachable.insert(*parent);
                 }
             }
         }
@@ -186,10 +278,16 @@ impl CoreState {
             }
         }
 
+        let orphans = self.orphaned_records()?;
+        report.records_scanned = orphans.scanned;
+        report.records_unreachable = orphans.keys.len();
+
         debug!(
             scanned = report.blobs_scanned,
             reachable = report.reachable,
             unreachable = report.unreachable,
+            records_scanned = report.records_scanned,
+            records_unreachable = report.records_unreachable,
             "garbage collection survey complete"
         );
 
@@ -203,12 +301,43 @@ impl CoreState {
             report.bytes_deleted += len;
         }
 
+        for key in orphans.keys {
+            self.stores.kv.delete_kv(CF_STATE, &key)?;
+            report.records_deleted += 1;
+        }
+
         self.flush()?;
         info!(
             deleted = report.deleted,
             bytes = report.bytes_deleted,
+            records = report.records_deleted,
             "reclaimed unreachable storage"
         );
         Ok(report)
+    }
+
+    /// State-column keys belonging to inodes the tree can no longer reach.
+    fn orphaned_records(&self) -> Result<OrphanedRecords> {
+        let reachable = self.reachable_inodes()?;
+        let mut found = OrphanedRecords::default();
+
+        // Every family keyed by inode. `imap` is included for completeness even though
+        // it is maintained eagerly: if the two ever disagree, the survey should say so
+        // rather than quietly hold the more optimistic view.
+        for prefix in [DIR_PREFIX, INODE_PREFIX, PARENT_PREFIX, IMAP_PREFIX] {
+            for key in self.stores.kv.scan_prefix_keys(CF_STATE, prefix)? {
+                found.scanned += 1;
+                let Some(inode) = inode_from_key(prefix, &key) else {
+                    // Not a key this code wrote. Left alone rather than deleted: an
+                    // unrecognised record is a reason to stop, not to tidy up.
+                    continue;
+                };
+                if !reachable.contains(&inode) {
+                    found.keys.push(key);
+                }
+            }
+        }
+
+        Ok(found)
     }
 }

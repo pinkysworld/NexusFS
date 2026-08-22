@@ -16,7 +16,7 @@ single binary.
 > entries can be proved individually — including proving that one is **absent**, which
 > makes a deletion demonstrable. A node that skipped content to save power **fetches it
 > on demand** when someone reads. The POSIX/FUSE facade is **not implemented yet**, and
-> the commitment layer is **not zero-knowledge** — see below. 200 tests, clippy clean,
+> the commitment layer is **not zero-knowledge** — see below. 205 tests, clippy clean,
 > every feature combination built in CI. Full detail in
 > [`documentation/current-status.md`](documentation/current-status.md).
 

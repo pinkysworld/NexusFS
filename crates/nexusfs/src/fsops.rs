@@ -157,6 +157,11 @@ pub async fn run_gc(config_path: PathBuf, apply: bool) -> Result<()> {
         human_bytes(report.bytes_scanned),
         human_bytes(report.bytes_reclaimable)
     );
+    // Counted separately from blobs rather than folded in, because the two are not
+    // equally recoverable if this gets it wrong: a blob can be fetched from a peer
+    // again, a record cannot.
+    println!("records:        {}", report.records_scanned);
+    println!("  orphaned:     {}", report.records_unreachable);
 
     if let Some(reason) = &report.refused {
         bail!("refused to collect: {reason}");
@@ -170,9 +175,10 @@ pub async fn run_gc(config_path: PathBuf, apply: bool) -> Result<()> {
         }
     } else {
         println!(
-            "\ndeleted {} blobs, freeing {}",
+            "\ndeleted {} blobs, freeing {}, and {} orphaned records",
             report.deleted,
-            human_bytes(report.bytes_deleted)
+            human_bytes(report.bytes_deleted),
+            report.records_deleted
         );
     }
     Ok(())

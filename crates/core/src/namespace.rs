@@ -19,8 +19,8 @@ use crate::state::CoreState;
 
 pub const CF_STATE: &str = "state";
 
-const DIR_PREFIX: &[u8] = b"dir\0";
-const INODE_PREFIX: &[u8] = b"inode\0";
+pub(crate) const DIR_PREFIX: &[u8] = b"dir\0";
+pub(crate) const INODE_PREFIX: &[u8] = b"inode\0";
 /// The maintained inode map: what the state root commits to.
 pub(crate) const IMAP_PREFIX: &[u8] = b"imap\0";
 /// Where an inode was created, so a file's reachability can be answered without a walk.
@@ -121,11 +121,19 @@ pub(crate) fn imap_key(inode: u128) -> Vec<u8> {
 /// Inodes are fixed-width big-endian, so key order is inode order — which is what lets
 /// the map be read back already sorted, as the commitment requires.
 pub(crate) fn parse_imap_key(key: &[u8]) -> Option<u128> {
-    if !key.starts_with(IMAP_PREFIX) || key.len() != IMAP_PREFIX.len() + 16 {
+    inode_from_key(IMAP_PREFIX, key)
+}
+
+/// The inode a `<prefix><inode_be16>` key names, or `None` if it is not one.
+///
+/// Shared by every record family in this column family, so collection cannot end up
+/// parsing one of them slightly differently from the code that wrote it.
+pub(crate) fn inode_from_key(prefix: &[u8], key: &[u8]) -> Option<u128> {
+    if !key.starts_with(prefix) || key.len() != prefix.len() + 16 {
         return None;
     }
     let mut b = [0u8; 16];
-    b.copy_from_slice(&key[IMAP_PREFIX.len()..]);
+    b.copy_from_slice(&key[prefix.len()..]);
     Some(u128::from_be_bytes(b))
 }
 

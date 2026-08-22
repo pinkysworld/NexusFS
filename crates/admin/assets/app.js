@@ -439,6 +439,10 @@
       setText("gcReachable", g.reachable);
       setText("gcUnreachable", g.unreachable);
       setText("gcBytes", formatBytes(g.bytes_reclaimable));
+      // Shown next to the blob counts rather than added to them: an orphaned record is
+      // key-value state, not stored bytes, and the two are not equally recoverable if
+      // collection ever gets it wrong.
+      setText("gcRecords", `${g.records_unreachable} of ${g.records_scanned}`);
 
       const share = g.bytes_scanned ? g.bytes_reclaimable / g.bytes_scanned : 0;
       setText("gcPct", `${Math.round(share * 100)}%`);

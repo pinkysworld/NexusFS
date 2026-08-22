@@ -25,6 +25,9 @@ remaining research tracks are named in `./roadmap.md` rather than left implied. 
 
 Since then, and previously listed here as outstanding:
 
+- **Collecting orphaned records.** Unlinking used to leave an inode's records behind
+  forever. `gc` now sweeps them from the same reachability walk, counted separately
+  because a wrongly deleted record — unlike a blob — cannot be fetched back from a peer.
 - **Storage headroom.** `Telemetry`'s free-space field is populated from `df` on the
   filesystem holding the store, and `energy.storage_reserve_mb` is a floor replication
   will not cross. Content is held to the room above it and stops entirely at it, while
@@ -105,8 +108,9 @@ Peer enrolment out of band is **done**: `nexusfs peer identity|list|add|remove` 
 
 ### Storage Maintenance
 
-- Add compaction and cleanup policies, including garbage collection of unreferenced
-  inodes and blobs.
+- Add a compaction policy. `gc` reclaims what nothing refers to — blobs and namespace
+  records alike — but nothing compacts the database underneath it, so a store that has
+  collected a great deal does not shrink on disk.
 
 ### Operations And Maintenance
 
@@ -125,7 +129,7 @@ on-disk format stamp, and `nexusfs peer` with explicit key enrolment and `--rota
 - Add admin API coverage beyond the minimal routes.
 - Add transport failure and retry tests.
 
-The suite is 200 tests today, covering convergence, conflict naming, encryption,
+The suite is 205 tests today, covering convergence, conflict naming, encryption,
 replication over both an in-memory pipe and real QUIC sockets, the scheduler's decision
 table, collection safety, format refusals in both directions, and the Merkle commitment
 including the forgeries an absence proof must refuse.

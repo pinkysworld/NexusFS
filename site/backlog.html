@@ -56,8 +56,8 @@
             </article>
             <article class="feature-card">
               <h3>Next</h3>
-              <p>Collecting orphaned inode records rather than only blobs, and push
-                notification so peers do not wait out the poll interval.</p>
+              <p>Push notification so peers do not wait out the poll interval, and
+                prioritising which deferred content to fetch first.</p>
             </article>
             <article class="feature-card">
               <h3>Later</h3>
@@ -79,7 +79,6 @@
               <li>See through a VPN, and spot a Wi-Fi hotspot on macOS — the link costs detection still cannot read</li>
               <li>Push notification of new operations, so peers do not wait for the poll interval</li>
               <li>Prioritise which deferred content to fetch first under a capped budget</li>
-              <li>Collect orphaned inode records, not only unreachable blobs</li>
             </ul>
           </div>
           <div class="content-panel">
@@ -87,6 +86,7 @@
             <ul class="list-block">
               <li>Metered-link detection, so the scheduler's link rule can fire</li>
               <li>A storage-headroom floor replication will not cross</li>
+              <li>Collection of orphaned namespace records, not only blobs</li>
               <li>The energy budget in <code>nexusfs status</code>, not only over HTTP</li>
               <li>On-demand fetch — a deferred file is fetched when someone reads it</li>
               <li>Incremental snapshots — the inode map is maintained, not re-walked</li>
