@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod access;
 pub mod apply;
 pub mod chunker;
 pub mod codec;
@@ -17,6 +18,7 @@ pub mod share;
 pub mod snapshot;
 pub mod state;
 
+pub use access::*;
 pub use apply::*;
 pub use chunker::*;
 pub use codec::*;

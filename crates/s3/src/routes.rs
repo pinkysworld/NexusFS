@@ -404,10 +404,20 @@ async fn get_object(
         ));
     }
 
-    let body = st
-        .core
-        .read_file_path(&path)
-        .map_err(|e| internal(e, &path))?;
+    let body = st.core.read_file_path(&path).map_err(|e| {
+        // Not a server error: this node holds the object and is not allowed to read it.
+        // `AccessDenied` is the S3 code a client already knows how to interpret.
+        if nexusfs_core::is_not_a_recipient(&e) {
+            S3Error(
+                StatusCode::FORBIDDEN,
+                "AccessDenied",
+                format!("{e:#}"),
+                path.clone(),
+            )
+        } else {
+            internal(e, &path)
+        }
+    })?;
     let etag = etag_for(&st.core, &path).unwrap_or_default();
 
     Ok((

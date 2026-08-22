@@ -150,6 +150,11 @@ false and enrol keys ahead of time: run `nexusfs peer identity` on each node, an
 the printed command to the other. Changing a known device's key requires `--rotate`, so
 an unexpected key is always noticed rather than silently accepted.
 
+**Trust-on-first-use does not grant read access.** TOFU pins the connecting device's
+signing key only, so two nodes paired that way converge and replicate but cannot read
+each other's encrypted files — a read returns `403` naming exactly that. Enrol the
+sealing key with `peer add` and run `share` to change it.
+
 `peer identity` prints two keys. The ed25519 one decides whether a session is accepted;
 the X25519 *sealing* key decides whether that peer can read encrypted content. `peer add`
 takes both. A peer enrolled with only the first replicates and verifies normally and is

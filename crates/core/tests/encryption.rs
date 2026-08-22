@@ -497,11 +497,12 @@ fn a_replica_that_is_not_a_recipient_holds_the_bytes_and_cannot_read_them() {
         "the namespace replicated, so the file is known to exist"
     );
     let err = reader.read_file_path("/s.txt").unwrap_err();
-    let msg = format!("{err:#}");
     assert!(
-        msg.contains("not a recipient"),
-        "the error should say why, got: {msg}"
+        nexusfs_core::is_not_a_recipient(&err),
+        "the refusal must be identifiable by type, not by matching its wording: the \
+         facades answer 403 for this and 500 for a real failure. Got: {err:#}"
     );
+    assert!(format!("{err:#}").contains("not a recipient"));
 }
 
 #[test]

@@ -175,6 +175,11 @@ That **grants** access and never withdraws it — the ciphertext is unchanged, s
 who already held a key still holds one. Withdrawing access means re-encrypting under
 fresh keys, which is not built.
 
+**Trust-on-first-use does not grant read access.** TOFU pins the connecting device's
+signing key, which decides whether its operations are accepted — not whether it can read
+your content. Two nodes paired that way converge and replicate; each read of the other's
+encrypted files returns `403`. Enrol the sealing key explicitly to change that.
+
 **Back up `identity.toml`.** With per-recipient sealing it is what opens your content,
 not `repo.key`. Both are in the data directory, written owner-only.
 

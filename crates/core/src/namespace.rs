@@ -12,6 +12,7 @@ use nexusfs_crdt::lww::LwwReg;
 use nexusfs_crdt::or_map::OrMap;
 use nexusfs_storage::Hash;
 
+use crate::access::NotARecipient;
 use crate::codec::{decode, encode};
 use crate::inode::ROOT_INODE;
 use crate::object::{DirEntry, EntryType, FileEncryption, FileNode, Object};
@@ -397,11 +398,10 @@ impl CoreState {
         if info.recipients.is_empty() {
             bail!("file is marked encrypted but carries no way to recover its key");
         }
-        bail!(
-            "this node is not a recipient of this file: {} envelope(s), none of which \
-             open with this device's sealing key",
-            info.recipients.len()
-        )
+        Err(NotARecipient {
+            envelopes: info.recipients.len(),
+        }
+        .into())
     }
 
     /// Fetch and concatenate a `FileNode`'s chunks, verifying layout as it goes.

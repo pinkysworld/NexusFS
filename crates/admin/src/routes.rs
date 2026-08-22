@@ -228,7 +228,16 @@ async fn fs_cat(
         }
     }
 
-    let bytes = st.core.read_file_path(&q.path).map_err(server_error)?;
+    // A file this node is not a recipient of is a refusal, not a failure. Reporting 500
+    // would say the daemon is broken when it is working exactly as designed — and would
+    // send an operator looking at logs instead of at enrolment.
+    let bytes = st.core.read_file_path(&q.path).map_err(|e| {
+        if nexusfs_core::is_not_a_recipient(&e) {
+            (StatusCode::FORBIDDEN, format!("{e:#}"))
+        } else {
+            server_error(e)
+        }
+    })?;
     let size = bytes.len() as u64;
     let truncated = bytes.len() > MAX_INLINE_BYTES;
     let head = &bytes[..bytes.len().min(MAX_INLINE_BYTES)];

@@ -44,6 +44,15 @@ curve, which keeps a signing oracle and a Diffie-Hellman oracle off the same sca
 Revoking a peer removes both its keys, so it stops being a recipient of anything written
 afterwards.
 
+**Trust-on-first-use grants replication, not readability.** TOFU pins a connecting
+device's *signing* key, which is what decides whether its operations are accepted. It
+does not make that device a recipient: two nodes paired by TOFU converge on the
+namespace, exchange every chunk, and cannot read each other's encrypted files. Reading
+requires the sealing key to be enrolled explicitly, with `nexusfs peer add`, followed by
+`nexusfs share` for files written earlier. That separation is deliberate — accepting
+somebody's operations and handing them your content are different decisions — but it is
+easy to be surprised by, so a refused read says exactly which one is missing.
+
 **A file does not publish who can read it.** Envelopes carry no recipient identity; a
 reader trials its own key against each. The recipient-set digest a file carries for
 re-sealing is keyed by the file key, so only someone who can already read the file can

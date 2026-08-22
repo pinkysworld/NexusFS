@@ -81,6 +81,11 @@ Completed" above.
 
 ### Encryption Follow-Ups
 
+- Decide whether the handshake should carry the sealing key, so trust-on-first-use pins
+  both. It would make encrypted replication work without a second enrolment step, at the
+  cost of granting read access to whoever connects first — a larger grant than "I will
+  accept your operations", and the reason it is a question rather than an obvious yes.
+
 - Key rotation and re-encryption of existing content. This is what would make revoking a
   recipient mean anything: `nexusfs share` grants access and cannot withdraw it, because
   the ciphertext does not change and anyone who held a key still holds one.

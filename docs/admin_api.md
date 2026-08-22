@@ -39,6 +39,11 @@ File contents, capped and binary-aware. If this node deferred the file's content
 read fetches it from a peer first, and answers `503` if it still cannot be had — rather
 than serving an empty file, which is what a parked write would otherwise produce.
 
+`403` means the file is encrypted and this node is not a recipient: it holds the bytes
+and cannot decrypt them. That is a refusal, not a failure, which is why it is not a
+`500` — and it usually means the sealing key was never enrolled, since
+trust-on-first-use pins only the signing key.
+
 ### GET `/api/fs/proof?path=`
 A self-contained inclusion proof for one entry: the inode, its object hash, and the
 sibling hashes up to the root. The same structure `nexusfs prove` writes, and
