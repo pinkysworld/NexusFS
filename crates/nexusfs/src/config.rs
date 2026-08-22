@@ -88,6 +88,20 @@ pub struct Energy {
     pub enabled: bool,
     pub battery_low_pct: u8,
     pub temp_high_c: i16,
+    /// `auto` (the default), `metered`, `unmetered`, or `unknown`.
+    ///
+    /// Stating it overrides detection, which is partial by platform: NetworkManager
+    /// answers properly on Linux, macOS recognises only a phone tether, and everything
+    /// else reports unknown. An operator on a satellite uplink should not have to wait
+    /// for a probe to be written for their platform.
+    ///
+    /// Defaulted so configs written before this existed keep parsing.
+    #[serde(default = "default_link_cost")]
+    pub link_cost: String,
+}
+
+fn default_link_cost() -> String {
+    "auto".into()
 }
 
 impl Config {

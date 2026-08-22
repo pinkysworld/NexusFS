@@ -25,6 +25,11 @@ remaining research tracks are named in `./roadmap.md` rather than left implied. 
 
 Since then, and previously listed here as outstanding:
 
+- **Metered-link detection.** The scheduler's link rule can now fire in the field:
+  NetworkManager answers on Linux, macOS recognises a USB phone tether, and
+  `energy.link_cost` states the answer outright where a probe cannot see it. Unknown is
+  never reported as unmetered, because the scheduler treats them the same but only one of
+  them is a fact.
 - **Incremental snapshots.** The inode map is maintained with parent pointers instead of
   rebuilt by a full walk on every apply. The state root fell from 3.66ms to 1.04ms at a
   thousand entries, and correctness is pinned by an invariant suite that re-derives the
@@ -46,8 +51,9 @@ Since then, and previously listed here as outstanding:
 
 ### Energy Follow-Ups
 
-- Detect metered links per platform. The scheduler already treats a metered link as an
-  override, but nothing ever reports one, so that rule cannot fire in the field.
+- Close the two gaps `energy.link_cost` exists to work around: a Wi-Fi hotspot on macOS,
+  and seeing through a VPN to the link underneath it. Both need more than a default-route
+  lookup, which is why they were left to config rather than guessed at.
 - Read storage headroom, which `Telemetry` carries but nothing populates.
 - Consider surfacing the budget in the CLI (`status`), not only over the admin API.
 
@@ -140,14 +146,12 @@ including the forgeries an absence proof must refuse.
 
 The most effective execution order right now is:
 
-1. Detect metered links per platform, so that scheduler rule can fire in the field. The
-   cheapest item here, and the only one that turns a tested rule into a working one.
-2. Per-recipient key envelopes, so replicas need not share one repository key.
+1. Per-recipient key envelopes, so replicas need not share one repository key.
    `crypto::envelope` already seals and opens; the write path does not use it.
-3. A mountable interface, if one is wanted. See the note in `./current-status.md`:
+2. A mountable interface, if one is wanted. See the note in `./current-status.md`:
    POSIX/FUSE is not owed — M2 asked for *one* facade and the S3 one shipped — and
    WebDAV reaches the same user-visible outcome without a kernel extension.
-4. An incremental Merkle tree, so a one-entry change costs O(log n) rather than a
+3. An incremental Merkle tree, so a one-entry change costs O(log n) rather than a
    rebuild. Structural, but an apply is fsync-bound today, so measure before starting.
 
 ## Definition Of “Ready To Leave Backlog”

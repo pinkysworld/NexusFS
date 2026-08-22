@@ -70,3 +70,17 @@ proof_mode = "transparent"
 enabled = true
 battery_low_pct = 20
 temp_high_c = 70
+
+# Whether bytes over this link are paid for: auto, metered, unmetered, or unknown.
+#
+# "auto" detects, and detection is partial by platform. Linux asks NetworkManager and
+# gets a real answer both ways. macOS recognises a phone tethered over USB and nothing
+# else — a Wi-Fi hotspot is indistinguishable from home broadband, and guessing from the
+# network name would be a heuristic dressed up as a reading. Other platforms report
+# unknown.
+#
+# So state it when you know: a satellite uplink or a mobile plan should not have to wait
+# for a probe to be written for your platform. Only "metered" constrains anything;
+# "unknown" is treated exactly like "unmetered" by the scheduler, and differs only in
+# what the console claims to know.
+link_cost = "auto"

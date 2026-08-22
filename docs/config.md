@@ -69,10 +69,17 @@ unless you have another layer in front of it.
 - `battery_low_pct`: at or below this charge, replication takes operations and defers
   content. At or below a quarter of it, replication stops entirely.
 - `temp_high_c`: at or above this temperature, content is deferred regardless of charge.
+- `link_cost`: `auto` (the default), `metered`, `unmetered`, or `unknown`. `auto`
+  detects, and detection is partial by platform — NetworkManager answers properly on
+  Linux, macOS recognises only a USB phone tether, and everything else reports unknown.
+  A VPN defeats it everywhere, because the default route names the tunnel and the cost
+  belongs to the link underneath. State the value explicitly where detection cannot see
+  your situation; an operator knows their plan better than a probe does.
 
 Heat and metered links override the battery grade rather than folding into it. Every
 reading is three-state, and **unknown never constrains** — a server with no battery
-sensor is not a device at 0%.
+sensor is not a device at 0%, and "we have no way to ask" is not "we asked and it is
+free".
 
 ---
 

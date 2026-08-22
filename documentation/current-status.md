@@ -210,6 +210,21 @@ fetch any particular file on demand once power returns. The ladder runs full syn
 capped content → operations only → nothing, and only the last rung stops tracking the
 filesystem at all.
 
+Link cost is now reported rather than permanently unknown, so that override can fire in
+the field. Detection is partial by platform and says so: Linux asks NetworkManager for
+the default-route interface and gets a real answer both ways, including NM's cellular
+guess; macOS recognises a phone tethered over USB and nothing else, because a Wi-Fi
+hotspot is indistinguishable from home broadband and inferring it from the network's
+name would be a heuristic dressed up as a reading; other platforms report unknown. A VPN
+defeats detection everywhere, since the default route names the tunnel rather than the
+link underneath it.
+
+Because that leaves real deployments uncovered, `energy.link_cost` states the answer
+outright — `auto`, `metered`, `unmetered` or `unknown` — and skips detection when set.
+An operator on a satellite uplink should not wait for a probe to be written for their
+platform. An unreadable source always yields unknown, never unmetered: the scheduler
+treats the two identically, but only one is a fact.
+
 Heat and metered links override the battery grade rather than being folded into it. No
 amount of remaining charge makes sustained transfer on a hot device acceptable, and a
 metered link costs money per byte regardless of power.
@@ -449,7 +464,7 @@ daemon uses between real nodes.
 
 ### Test Coverage
 
-167 tests, including order-independent convergence (the same operation set applied in
+182 tests, including order-independent convergence (the same operation set applied in
 different orders yields an identical state root), idempotent re-apply, pending-op drain,
 concurrent-create conflict naming, concurrent-write resolution, rename-vs-unlink,
 subtree-cycle refusal, restart persistence, S3 key mapping and pagination, and
@@ -480,14 +495,20 @@ the tree against *itself*, and all of them keep passing if the hashing changes a
 as it changes consistently — but the root is on disk and on the wire, so a refactor that
 quietly moved it would break every existing repository while the suite stayed green.
 
+Link-cost detection is tested by splitting each probe into a subprocess call and a pure
+parser, so the parsers are exercised on any host against captured output: NetworkManager
+answering in both directions and when guessing, a default route chosen by lowest metric
+where two exist, macOS hardware ports where a port name contains an interface name, and
+the VPN case where no port matches. Also that an absent or unparseable source reads as
+unknown rather than unmetered, and that a stated `link_cost` is used verbatim.
+
 ## Partially Implemented Or Present As Scaffolding
 
 - `crypto::envelope` now seals *and* opens, but is not yet used by the write path, so
   replicas still share one repository key.
-- Link cost is always reported as unknown: no platform metered-connection detection is
-  implemented yet, so a metered link must currently be simulated in tests rather than
-  detected in the field. The scheduler rule exists and is tested; nothing can trigger it
-  in the field.
+- Link-cost detection covers Linux via NetworkManager and, on macOS, only a phone
+  tethered over USB. A Wi-Fi hotspot reads as unknown, and a VPN hides the link on every
+  platform. `energy.link_cost` is the way to state what a probe cannot see.
 - `Telemetry` carries a storage-headroom field that nothing populates.
 - `crates/fs_posix` and `crates/privacy` are stubs. `crates/zk` is not — it holds the
   Merkle commitment, the proofs and the transparent bundles; what it does not hold is a
@@ -500,9 +521,10 @@ not built, grouped by what they would buy.
 
 ### Replication And Scheduling
 
-- **Metered-link detection per platform.** The scheduler treats a metered link as an
-  override that defers content regardless of charge. The rule is written and tested;
-  nothing reports a metered link, so it cannot fire in the field.
+- **The two cases link-cost detection cannot see.** A Wi-Fi hotspot on macOS looks
+  identical to home broadband, and a VPN hides the link beneath it on every platform.
+  `energy.link_cost` exists to work around both; closing them properly needs more than a
+  default-route lookup.
 - **Storage headroom.** `Telemetry` carries the field and no platform fills it, so the
   scheduler cannot yet refuse to fill a nearly full disk.
 - **The budget in `nexusfs status`.** It is visible at `/api/energy` and nowhere else,

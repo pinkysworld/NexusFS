@@ -25,6 +25,8 @@ struct EnergyGate {
     #[cfg_attr(not(feature = "admin"), allow(dead_code))]
     enabled: bool,
     core: CoreState,
+    /// Link cost stated in config; `None` means detect it each pass.
+    link_override: Option<nexusfs_energy::LinkCost>,
     last: std::sync::Mutex<(nexusfs_energy::Telemetry, nexusfs_energy::SyncBudget)>,
 }
 
@@ -38,10 +40,26 @@ impl EnergyGate {
         } else {
             nexusfs_energy::RuleBasedScheduler::disabled()
         };
+
+        // A value nobody recognises must not quietly become a constraint, nor quietly
+        // become "auto" in silence — the operator wrote it meaning something.
+        if !nexusfs_energy::link::config_is_valid(&cfg.link_cost) {
+            tracing::warn!(
+                value = %cfg.link_cost,
+                "energy.link_cost is not one of auto, metered, unmetered or unknown; \
+                 detecting instead"
+            );
+        }
+        let link_override = nexusfs_energy::link::parse_config(&cfg.link_cost);
+        if let Some(link) = link_override {
+            tracing::info!(?link, "link cost is set in config; skipping detection");
+        }
+
         Self {
             scheduler,
             enabled: cfg.enabled,
             core,
+            link_override,
             last: std::sync::Mutex::new((
                 nexusfs_energy::Telemetry::default(),
                 nexusfs_energy::SyncBudget::unlimited(),
@@ -52,7 +70,7 @@ impl EnergyGate {
     fn sample(&self) -> (nexusfs_energy::Telemetry, nexusfs_energy::SyncBudget) {
         use nexusfs_energy::Scheduler as _;
 
-        let telemetry = nexusfs_energy::telemetry::sample();
+        let telemetry = nexusfs_energy::telemetry::sample_with_link(self.link_override);
         // Backlog size feeds the conserving band: a device with nothing outstanding has
         // no reason to be capped.
         let backlog = nexusfs_energy::BacklogView {

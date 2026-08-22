@@ -308,6 +308,7 @@ nexusfs check-proof gone.json    --root <root-after>    # claim: absent
 enabled = true
 battery_low_pct = 20
 temp_high_c = 70
+link_cost = "auto"   # or metered / unmetered / unknown
 ```
 
 Before each sync pass the daemon samples the device — power source, charge, temperature,
@@ -334,6 +335,40 @@ far better degraded state than falling behind entirely, and it costs almost noth
 Heat and metered links override the battery grade rather than folding into it: no amount
 of remaining charge makes cooking the device acceptable, and a metered link costs money
 per byte regardless of power.
+
+### Knowing whether a link is metered
+
+"Metered" is not something the kernel knows — it is a policy statement about a network,
+and only some systems record it. Detection is therefore partial, and honest about it:
+
+| Platform | What `auto` can tell |
+| --- | --- |
+| Linux with NetworkManager | a real answer both ways, including NM's cellular guess |
+| Linux without it | unknown |
+| macOS | a phone tethered over USB; nothing else |
+| Everything else | unknown |
+
+macOS is the awkward one: a Mac joined to an iPhone's Wi-Fi hotspot is indistinguishable
+from one on home broadband, and inferring it from the network's name would be a
+heuristic dressed up as a reading.
+
+**A VPN defeats detection on every platform.** It follows the default route, and with a
+tunnel up that route points at the tunnel, whose cost belongs to the physical link
+underneath it. Recovering that means resolving the route to the VPN's own endpoint —
+a much larger job than this rule is worth.
+
+So the answer can also just be stated:
+
+```toml
+link_cost = "metered"
+```
+
+which skips detection. An operator on a satellite uplink or a mobile plan should not
+have to wait for a probe to be written for their platform.
+
+Throughout, an unreadable or absent source reports `unknown`, never `unmetered`. The
+scheduler treats the two identically — neither constrains anything — but only one of
+them is a fact, and reporting a guess as a fact is how a console starts lying.
 
 **Unknown never means constrained.** A server with no battery sensor reports `unknown`
 and runs unthrottled. Treating a missing sensor as an empty battery would make an

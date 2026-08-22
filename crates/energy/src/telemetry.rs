@@ -78,9 +78,20 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Take a best-effort reading of the current device state.
+/// Take a best-effort reading of the current device state, detecting the link cost.
 pub fn sample() -> Telemetry {
+    sample_with_link(None)
+}
+
+/// As [`sample`], with the link cost supplied rather than detected.
+///
+/// `Some` skips detection entirely. That is not just an optimisation: detection is
+/// partial by platform (see [`crate::link`]), so an operator stating the answer is
+/// giving better information than a probe could, and re-deriving it would be spending
+/// a subprocess per pass to second-guess them.
+pub fn sample_with_link(link: Option<LinkCost>) -> Telemetry {
     let mut t = platform_sample();
+    t.link = link.unwrap_or_else(crate::link::detect);
     t.sampled_unix_ms = now_ms();
     t
 }
@@ -211,4 +222,37 @@ fn load_average() -> Option<f32> {
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 fn load_average() -> Option<f32> {
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_stated_link_cost_is_used_verbatim() {
+        // Including `Unmetered`, which detection on this host may not be able to
+        // conclude: the operator's statement is the answer, not a starting hypothesis.
+        for stated in [LinkCost::Metered, LinkCost::Unmetered, LinkCost::Unknown] {
+            assert_eq!(sample_with_link(Some(stated)).link, stated);
+        }
+    }
+
+    #[test]
+    fn sampling_always_stamps_a_time() {
+        // The console's staleness check keys off this; a zero would make every reading
+        // look older than the threshold and re-sample forever.
+        assert!(sample_with_link(Some(LinkCost::Unknown)).sampled_unix_ms > 0);
+    }
+
+    #[test]
+    fn detection_on_this_host_answers_without_panicking() {
+        // Whatever this machine is, probing it must produce one of the three states and
+        // survive missing tools — the failure mode that matters is a daemon that dies
+        // sampling, not one that reports unknown.
+        let link = crate::link::detect();
+        assert!(matches!(
+            link,
+            LinkCost::Metered | LinkCost::Unmetered | LinkCost::Unknown
+        ));
+    }
 }
