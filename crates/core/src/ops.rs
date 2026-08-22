@@ -73,7 +73,10 @@ impl CoreState {
         if !self.proofs.generates() {
             let op = self.make_op(identity, kind, now)?;
             return match self.apply_op(&op)? {
-                ApplyOutcome::Applied | ApplyOutcome::AlreadyApplied => Ok(op),
+                ApplyOutcome::Applied | ApplyOutcome::AlreadyApplied => {
+                    self.announce_local_op();
+                    Ok(op)
+                }
                 ApplyOutcome::Pending(reason) => bail!("operation cannot be applied: {reason}"),
             };
         }
@@ -104,7 +107,21 @@ impl CoreState {
         op.sig = nexusfs_crypto::sign(identity.signing_key(), &op.signing_bytes()?);
         self.append_op(&op)?;
 
+        self.announce_local_op();
         Ok(op)
+    }
+
+    /// Tell whoever is listening that this node just applied an operation of its own.
+    ///
+    /// After the operation is durable, never before: a listener that reacts by telling a
+    /// peer "come and get it" must not be able to arrive before the thing it is about.
+    /// Errors are not possible to report from here and would not be actionable anyway —
+    /// the worst case is a peer waiting out its poll interval, which is what happened
+    /// before any of this existed.
+    fn announce_local_op(&self) {
+        if let Some(sink) = &self.local_ops {
+            sink.applied();
+        }
     }
 
     /// Create `path` and any missing parents, returning the directory's inode.

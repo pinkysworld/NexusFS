@@ -125,4 +125,32 @@ pub enum Msg {
         message: String,
         retry_after_ms: Option<u64>,
     },
+
+    // --- appended in protocol v4 -------------------------------------------------
+    //
+    // At the end, not beside the messages they belong with. Postcard encodes an enum by
+    // variant *index*, so inserting a variant renumbers every one after it — and a
+    // renumbered message does not fail to decode, it decodes as a different message.
+    // Reading order is worth less than that.
+    /// "I have operations you may not." Sent after a local write, so a peer does not
+    /// wait out its poll interval to find out.
+    ///
+    /// Carries the sender's clock summary rather than being a bare poke, so the receiver
+    /// can tell at once whether it is actually behind and skip the pass if it is not.
+    /// That makes a notification safe to send liberally and cheap to ignore.
+    ///
+    /// It carries no operations and proves nothing: it is a hint, and the pull it
+    /// provokes verifies everything exactly as a scheduled pass would.
+    Notify {
+        summary: ClockSummary,
+    },
+    /// Acknowledges a [`Msg::Notify`], saying whether it prompted anything.
+    ///
+    /// Only useful for diagnosis — a notifier does not act on the answer — but "your
+    /// peer heard you and was already up to date" and "your peer never heard you" are
+    /// very different problems to be looking at.
+    Noted {
+        /// Whether the receiver decided it was behind.
+        behind: bool,
+    },
 }

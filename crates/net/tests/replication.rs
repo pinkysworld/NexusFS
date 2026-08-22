@@ -28,6 +28,7 @@ fn node(device: u128, seed: u8, tofu: bool) -> Node {
             identity: Identity::from_seed([seed; 32]),
             device_id: DeviceId(device),
             trust: TrustPolicy { tofu },
+            wake: None,
         },
     }
 }
@@ -667,4 +668,134 @@ async fn content_that_does_not_match_its_hash_is_refused_on_demand_too() {
         .missing_chunks_for_path("/f.txt")
         .unwrap()
         .is_empty());
+}
+
+// ---- push notification -------------------------------------------------------------
+
+#[tokio::test]
+async fn a_notification_says_whether_the_peer_is_behind() {
+    // The whole point of carrying a summary rather than being a bare poke: a peer that
+    // is already current does no work, so notifying liberally costs a comparison.
+    let a = node(0xA1, 1, true);
+    let b = node(0xB2, 2, true);
+    let id = Identity::generate();
+
+    a.ctx
+        .core
+        .write_file(&id, "/new.txt", b"hello", now_ms())
+        .unwrap();
+
+    let summary = a.ctx.core.clock_summary().unwrap();
+    let (client, server) = tokio::io::duplex(1 << 20);
+    let server_ctx = b.ctx.clone();
+    let served = tokio::spawn(async move {
+        let mut s = server;
+        serve_session(&mut s, &server_ctx).await
+    });
+
+    let mut c = client;
+    let behind = nexusfs_net::session::notify_peer(&mut c, &a.ctx, summary)
+        .await
+        .unwrap();
+    assert!(behind, "b holds none of a's operations");
+    served.await.unwrap().ok();
+}
+
+#[tokio::test]
+async fn a_peer_that_is_current_reports_it_is_not_behind() {
+    let a = node(0xA1, 1, true);
+    let b = node(0xB2, 2, true);
+    let id = Identity::generate();
+
+    a.ctx
+        .core
+        .write_file(&id, "/x.txt", b"hello", now_ms())
+        .unwrap();
+    // Bring b fully up to date the ordinary way first.
+    for (hash, _) in a.ctx.core.stores.blobs.list().unwrap() {
+        let bytes = a.ctx.core.stores.blobs.get(&hash).unwrap().unwrap();
+        b.ctx.core.stores.blobs.put(hash, &bytes).unwrap();
+    }
+    for op in a.ctx.core.all_ops().unwrap() {
+        b.ctx.core.apply_op(&op).unwrap();
+    }
+
+    let summary = a.ctx.core.clock_summary().unwrap();
+    let (client, server) = tokio::io::duplex(1 << 20);
+    let server_ctx = b.ctx.clone();
+    let served = tokio::spawn(async move {
+        let mut s = server;
+        serve_session(&mut s, &server_ctx).await
+    });
+
+    let mut c = client;
+    let behind = nexusfs_net::session::notify_peer(&mut c, &a.ctx, summary)
+        .await
+        .unwrap();
+    assert!(!behind, "b already holds everything a has");
+    served.await.unwrap().ok();
+}
+
+#[tokio::test]
+async fn a_notification_wakes_the_listener() {
+    // The signal the sync loop selects on. Asserted here rather than through the loop
+    // itself, which would mean waiting out real time.
+    let a = node(0xA1, 1, true);
+    let mut b = node(0xB2, 2, true);
+    let wake = std::sync::Arc::new(tokio::sync::Notify::new());
+    b.ctx.wake = Some(wake.clone());
+
+    let id = Identity::generate();
+    a.ctx
+        .core
+        .write_file(&id, "/new.txt", b"hello", now_ms())
+        .unwrap();
+
+    // Registered before the notification arrives, which is what `notified()` requires
+    // to not miss a wake that happens first.
+    let waiter = tokio::spawn(async move {
+        tokio::time::timeout(std::time::Duration::from_secs(5), wake.notified())
+            .await
+            .is_ok()
+    });
+    tokio::task::yield_now().await;
+
+    let summary = a.ctx.core.clock_summary().unwrap();
+    let (client, server) = tokio::io::duplex(1 << 20);
+    let server_ctx = b.ctx.clone();
+    let served = tokio::spawn(async move {
+        let mut s = server;
+        serve_session(&mut s, &server_ctx).await
+    });
+    let mut c = client;
+    nexusfs_net::session::notify_peer(&mut c, &a.ctx, summary)
+        .await
+        .unwrap();
+    served.await.unwrap().ok();
+
+    assert!(
+        waiter.await.unwrap(),
+        "the sync loop should have been woken"
+    );
+}
+
+#[tokio::test]
+async fn an_unknown_device_cannot_notify() {
+    // A notification makes this node start work, so it is authorised like anything else
+    // — otherwise anyone who can reach the port has a lever on how busy it is.
+    let stranger = node(0xCC, 9, true);
+    let mut guarded = node(0xB2, 2, true);
+    guarded.ctx.trust = TrustPolicy { tofu: false };
+
+    let summary = stranger.ctx.core.clock_summary().unwrap();
+    let (client, server) = tokio::io::duplex(1 << 20);
+    let server_ctx = guarded.ctx.clone();
+    tokio::spawn(async move {
+        let mut s = server;
+        serve_session(&mut s, &server_ctx).await
+    });
+
+    let mut c = client;
+    let result = nexusfs_net::session::notify_peer(&mut c, &stranger.ctx, summary).await;
+    assert!(result.is_err(), "an unenrolled device must be refused");
 }

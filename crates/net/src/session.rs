@@ -115,6 +115,14 @@ pub struct SessionCtx {
     pub identity: Identity,
     pub device_id: DeviceId,
     pub trust: TrustPolicy,
+    /// Woken when a peer notifies that it holds operations this node lacks.
+    ///
+    /// A bare signal rather than a channel carrying the peer's identity: the sync loop
+    /// pulls from every configured peer anyway, and a notification is a hint about
+    /// *timing*, not about who to talk to. `None` on a node with no sync loop to wake —
+    /// every test that drives a session directly, and any embedder that pulls on its
+    /// own schedule.
+    pub wake: Option<std::sync::Arc<tokio::sync::Notify>>,
 }
 
 impl SessionCtx {
@@ -124,6 +132,53 @@ impl SessionCtx {
             git_hash: None,
         }
     }
+}
+
+/// Tell one peer that this node holds operations it may lack.
+///
+/// The full handshake for one tiny message, which is not as wasteful as it looks: the
+/// alternative to authenticating is letting anyone who can reach the port make this node
+/// start work. It returns whether the peer said it was behind, which nothing acts on —
+/// only diagnosis cares, and "heard you, already current" is a very different thing to
+/// be looking at than "never heard you".
+pub async fn notify_peer<S>(
+    stream: &mut S,
+    ctx: &SessionCtx,
+    summary: nexusfs_proto::ClockSummary,
+) -> Result<bool>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let hello = make_hello(
+        &ctx.identity,
+        ctx.device_id,
+        vec!["ops".into(), "blobs".into()],
+        ctx.build_info(),
+        nexusfs_core::now_ms(),
+    )?;
+    let nonce = hello_nonce(&hello)?;
+    send_msg(stream, &env(1, None, hello)).await?;
+
+    let ack = recv_msg(stream, MAX_FRAME_LEN).await?;
+    if let Msg::Error { code, message, .. } = &ack.payload {
+        bail!("peer error {code}: {message}");
+    }
+    let peer_info = verify_hello_ack(&ack.payload, &nonce)?;
+    // Authorised even though nothing is being accepted from them: telling an unknown
+    // device our clock summary leaks which devices we have heard from and how far along
+    // they are, which is not much and is not nothing.
+    authorize(&ctx.core, ctx.trust, peer_info.device_id, &peer_info.pubkey)?;
+
+    send_msg(stream, &env(2, None, Msg::Notify { summary })).await?;
+    let reply = recv_msg(stream, MAX_FRAME_LEN).await?;
+    let behind = match reply.payload {
+        Msg::Noted { behind } => behind,
+        Msg::Error { code, message, .. } => bail!("peer error {code}: {message}"),
+        other => bail!("unexpected reply to a notification: {other:?}"),
+    };
+
+    send_msg(stream, &env(3, None, Msg::Bye)).await.ok();
+    Ok(behind)
 }
 
 /// What one pull achieved, for logging and the admin surface.
@@ -475,6 +530,25 @@ where
                         Some(request.msg_id),
                         Msg::BlobsBatch { blobs, more },
                     ),
+                )
+                .await?;
+            }
+
+            Msg::Notify { summary } => {
+                // Answered from the summary alone. A notification provokes a pull; it
+                // never delivers one, so nothing here is trusted beyond the handshake
+                // that already authenticated this peer — and the pull it triggers
+                // verifies every operation exactly as a scheduled pass would.
+                let behind = ctx.core.is_behind(&summary).unwrap_or(false);
+                if behind {
+                    if let Some(wake) = &ctx.wake {
+                        debug!("peer reports operations we lack; waking the sync loop");
+                        wake.notify_waiters();
+                    }
+                }
+                send_msg(
+                    stream,
+                    &env(msg_id, Some(request.msg_id), Msg::Noted { behind }),
                 )
                 .await?;
             }

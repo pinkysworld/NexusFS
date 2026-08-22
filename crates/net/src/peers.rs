@@ -138,6 +138,63 @@ pub async fn sync_once(
 /// holding a request open for minutes.
 const FETCH_TIMEOUT: Duration = Duration::from_secs(20);
 
+/// Shortest gap between two passes started by a peer notification.
+///
+/// Notifications are a hint from a peer, and a peer can send as many as it likes. This
+/// is what stops that being a lever on how much work this node does: the wake still
+/// arrives, it is simply not acted on any sooner than this. Short enough that a person
+/// saving a file sees the other device update immediately, long enough that a burst of
+/// writes coalesces into one pass.
+const NOTIFY_FLOOR: Duration = Duration::from_millis(500);
+
+/// Tell each configured peer that this node has operations they may lack.
+///
+/// One short session per peer: handshake, one message, close. It carries no operations
+/// — a notification provokes a pull rather than replacing one — so nothing here needs
+/// the verification a sync pass does, and a peer that ignores it loses nothing but time.
+///
+/// Failures are debug-logged and dropped. A peer that cannot be reached will find out on
+/// its next poll, which is exactly the behaviour this is an optimisation over.
+pub async fn notify_peers(endpoint: &Endpoint, peers: &[String], ctx: &SessionCtx) {
+    let Ok(summary) = ctx.core.clock_summary() else {
+        return;
+    };
+
+    for peer in peers {
+        let Ok(addr) = peer.parse::<SocketAddr>() else {
+            continue;
+        };
+        let attempt = tokio::time::timeout(
+            NOTIFY_TIMEOUT,
+            notify_one(endpoint, addr, ctx, summary.clone()),
+        )
+        .await;
+        match attempt {
+            Ok(Ok(behind)) => debug!(peer = %peer, behind, "notified peer"),
+            Ok(Err(e)) => debug!(peer = %peer, error = %e, "could not notify peer"),
+            Err(_) => debug!(peer = %peer, "notification timed out"),
+        }
+    }
+}
+
+/// Bound on one notification. Tighter than a sync pass: nothing is waiting on the
+/// answer, and a slow peer should not hold up telling the others.
+const NOTIFY_TIMEOUT: Duration = Duration::from_secs(5);
+
+async fn notify_one(
+    endpoint: &Endpoint,
+    addr: SocketAddr,
+    ctx: &SessionCtx,
+    summary: nexusfs_proto::ClockSummary,
+) -> anyhow::Result<bool> {
+    let connection = quic::connect(endpoint, addr).await?;
+    let (send, recv) = connection.open_bi().await.context("open notify stream")?;
+    let mut stream = join(recv, send);
+    let behind = crate::session::notify_peer(&mut stream, ctx, summary).await;
+    connection.close(0u32.into(), b"done");
+    behind
+}
+
 /// Fetch specific chunks from whichever configured peer has them.
 ///
 /// Tries peers in order and stops as soon as everything asked for has arrived. A peer
@@ -220,13 +277,38 @@ pub async fn sync_loop(
         return;
     }
 
+    let mut last_woken = tokio::time::Instant::now();
+
     loop {
         // Slept rather than ticked, because the gate can stretch the period and a fixed
         // `interval` would fire immediately afterwards to catch up on the ticks it
         // thinks it missed — exactly the burst the throttle exists to prevent.
         let decision = gate.as_ref().map(|g| g.decide()).unwrap_or_default();
         let scale = decision.interval_scale.max(0.1);
-        tokio::time::sleep(interval.mul_f32(scale)).await;
+        let nap = interval.mul_f32(scale);
+
+        // A notification cuts the nap short. The floor is what keeps that from becoming
+        // a way to make this node work: a peer that notifies in a tight loop gets one
+        // pass per `NOTIFY_FLOOR`, and the rest are slept through as if it had said
+        // nothing. Without it, "tell me when there is news" is also "make me sync as
+        // often as you like".
+        match &ctx.wake {
+            Some(wake) => {
+                let woken = tokio::select! {
+                    _ = tokio::time::sleep(nap) => false,
+                    _ = wake.notified() => true,
+                };
+                if woken {
+                    let since = last_woken.elapsed();
+                    if since < NOTIFY_FLOOR {
+                        tokio::time::sleep(NOTIFY_FLOOR - since).await;
+                    }
+                    last_woken = tokio::time::Instant::now();
+                    debug!("woken by a peer notification");
+                }
+            }
+            None => tokio::time::sleep(nap).await,
+        }
 
         if !decision.sync {
             debug!(reason = %decision.reason, "skipping sync pass");

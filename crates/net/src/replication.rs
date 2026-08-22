@@ -16,7 +16,13 @@ use rand::RngCore;
 /// byte-identical across the two, so the failure a mismatched pair would hit is narrow
 /// and would look like sporadic decode errors on some files and not others — worse to
 /// diagnose than a refused handshake, not better.
-pub const PROTOCOL_VERSION: u16 = 3;
+///
+/// v4 added `Notify`/`Noted` for push notification. A v3 peer answers a notification
+/// with an `Error` and carries on polling, so the failure there is mild — but the
+/// message enum is postcard-encoded by variant *index*, and inserting variants shifts
+/// every one after them. That is the kind of change that decodes into something else
+/// rather than failing, which is exactly what a version number is for.
+pub const PROTOCOL_VERSION: u16 = 4;
 
 /// Max message size accepted (bytes).
 pub const MAX_FRAME_LEN: usize = 8 * 1024 * 1024;

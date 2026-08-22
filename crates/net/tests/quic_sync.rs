@@ -24,6 +24,7 @@ fn ctx(device: u128, seed: u8) -> SessionCtx {
         identity: Identity::from_seed([seed; 32]),
         device_id: DeviceId(device),
         trust: TrustPolicy { tofu: true },
+        wake: None,
     }
 }
 

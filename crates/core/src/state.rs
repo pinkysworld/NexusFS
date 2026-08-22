@@ -124,6 +124,25 @@ pub struct CoreState {
     pub sealing_secret: Option<[u8; 32]>,
     /// How this node treats proofs on operations it creates and receives.
     pub proofs: crate::proof::ProofPolicy,
+    /// Told after this node applies an operation of its own.
+    ///
+    /// The same arrangement `ContentFetcher` uses, and for the same reason: `core` must
+    /// not learn what a peer is. It reports that something happened; the daemon decides
+    /// that this means telling the network. A node with no transport has none, and
+    /// nothing about applying changes.
+    pub local_ops: Option<Arc<dyn LocalOpSink>>,
+}
+
+/// Told when a node applies an operation it created itself.
+///
+/// Deliberately carries nothing — not the operation, not its id. Everything a listener
+/// could want is already in the store, and passing the operation would invite doing
+/// something with it here that belongs on the other side of the boundary.
+///
+/// Implementations must not block: this is called on the apply path, and an apply is
+/// what a user is waiting for.
+pub trait LocalOpSink: Send + Sync {
+    fn applied(&self);
 }
 
 impl CoreState {
@@ -135,6 +154,7 @@ impl CoreState {
             cipher: None,
             sealing_secret: None,
             proofs: crate::proof::ProofPolicy::None,
+            local_ops: None,
         }
     }
 
@@ -147,6 +167,12 @@ impl CoreState {
     /// Encrypt chunk content written from now on.
     pub fn with_encryption(mut self, cipher: Arc<RepoCipher>) -> Self {
         self.cipher = Some(cipher);
+        self
+    }
+
+    /// Report locally applied operations to `sink`.
+    pub fn with_local_op_sink(mut self, sink: Arc<dyn LocalOpSink>) -> Self {
+        self.local_ops = Some(sink);
         self
     }
 
@@ -384,6 +410,45 @@ impl CoreState {
         }
 
         Ok(ClockSummary { entries, above })
+    }
+
+    /// Whether `remote` claims operations this node does not hold.
+    ///
+    /// The mirror of [`ops_missing_for`], and the question a push notification asks: a
+    /// peer says "here is my clock", and the only thing worth doing about it is deciding
+    /// whether to pull. Answering here rather than by starting a pass is what makes a
+    /// notification cheap to ignore — a peer that notifies constantly while holding
+    /// nothing new costs one summary comparison each time.
+    pub fn is_behind(&self, remote: &ClockSummary) -> Result<bool> {
+        let mine = self.clock_summary()?;
+        let watermarks: BTreeMap<DeviceId, u64> = mine.entries.iter().copied().collect();
+        let extras: BTreeMap<DeviceId, BTreeSet<u64>> = mine
+            .above
+            .iter()
+            .map(|(did, counters)| (*did, counters.iter().copied().collect()))
+            .collect();
+
+        for (device, counter) in &remote.entries {
+            if watermarks.get(device).copied().unwrap_or(0) < *counter {
+                return Ok(true);
+            }
+        }
+
+        // Counters the peer holds past its own gap. One of these can be new to us even
+        // when the contiguous watermarks match, so skipping them would make a
+        // notification miss exactly the operations that are hardest to get any other
+        // way.
+        for (device, counters) in &remote.above {
+            let watermark = watermarks.get(device).copied().unwrap_or(0);
+            let held = extras.get(device);
+            for counter in counters {
+                if *counter > watermark && !held.is_some_and(|s| s.contains(counter)) {
+                    return Ok(true);
+                }
+            }
+        }
+
+        Ok(false)
     }
 
     /// Operations this node holds that `remote` does not, oldest first.

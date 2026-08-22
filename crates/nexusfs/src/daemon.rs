@@ -201,6 +201,33 @@ impl nexusfs_core::ContentFetcher for PeerContentFetcher {
     }
 }
 
+/// Carries "this node just wrote something" from the apply path to the task that tells
+/// peers about it.
+///
+/// A channel rather than the notifying itself, because `applied` runs on the apply path
+/// with somebody waiting on it: opening a QUIC connection there would put a handshake
+/// between a user and their `put` returning.
+#[cfg(feature = "quic")]
+struct LocalOpChannel(tokio::sync::mpsc::Sender<()>);
+
+#[cfg(feature = "quic")]
+impl nexusfs_core::LocalOpSink for LocalOpChannel {
+    fn applied(&self) {
+        // `try_send`, never `send`. A full channel already means a notification is
+        // pending, and a second one would say nothing the first does not — so dropping
+        // it is not a loss, it is the coalescing working.
+        let _ = self.0.try_send(());
+    }
+}
+
+/// How long to wait after a local write before telling peers.
+///
+/// One `put` is several operations — a `mkdir`, a `CreateFile`, a `Write` — and each
+/// would otherwise be its own round of handshakes to every peer. Long enough to collect
+/// those into one notification, short enough that nobody perceives it.
+#[cfg(feature = "quic")]
+const NOTIFY_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(150);
+
 /// Bridges the replication registry to the admin API without either crate depending
 /// on the other.
 #[cfg(all(feature = "admin", feature = "quic"))]
@@ -351,6 +378,13 @@ pub async fn run_daemon(config_path: PathBuf) -> Result<()> {
     #[cfg_attr(not(feature = "admin"), allow(unused_variables))]
     let (core, identity, admin_token) = open_core(&cfg)?;
 
+    // Attached before anything clones `core`, so every path that applies an operation
+    // reports it — the CLI-facing facades included, not only the sync loop.
+    #[cfg(feature = "quic")]
+    let (local_ops_tx, mut local_ops_rx) = tokio::sync::mpsc::channel::<()>(1);
+    #[cfg(feature = "quic")]
+    let core = core.with_local_op_sink(Arc::new(LocalOpChannel(local_ops_tx)));
+
     // Before anything is written: an old or newer store must not be operated on by a
     // build that does not match it.
     core.require_current_format()?;
@@ -389,11 +423,15 @@ pub async fn run_daemon(config_path: PathBuf) -> Result<()> {
                 break 'replication None;
             }
         };
+        // Shared between the sessions that receive notifications and the loop that
+        // acts on them.
+        let wake = Arc::new(tokio::sync::Notify::new());
         let ctx = nexusfs_net::session::SessionCtx {
             core: core.clone(),
             identity: identity.clone(),
             device_id: core.device_id,
             trust: nexusfs_net::trust::TrustPolicy { tofu: cfg.net.tofu },
+            wake: Some(wake.clone()),
         };
 
         match nexusfs_net::quic::endpoint(listen) {
@@ -410,6 +448,25 @@ pub async fn run_daemon(config_path: PathBuf) -> Result<()> {
                     endpoint.clone(),
                     ctx.clone(),
                 ));
+
+                // Tell peers when this node writes, so they do not wait out a poll
+                // interval to find out. Configured peers only: this node knows who it
+                // pulls from, not who pulls from it, so a one-directional pairing falls
+                // back to polling on the side that was never told about.
+                tokio::spawn({
+                    let endpoint = endpoint.clone();
+                    let peers = cfg.net.peers.clone();
+                    let ctx = ctx.clone();
+                    async move {
+                        while local_ops_rx.recv().await.is_some() {
+                            tokio::time::sleep(NOTIFY_DEBOUNCE).await;
+                            // Drain whatever else arrived while waiting; they are all
+                            // the same message.
+                            while local_ops_rx.try_recv().is_ok() {}
+                            nexusfs_net::peers::notify_peers(&endpoint, &peers, &ctx).await;
+                        }
+                    }
+                });
                 tokio::spawn(nexusfs_net::peers::sync_loop(
                     endpoint.clone(),
                     cfg.net.peers.clone(),
