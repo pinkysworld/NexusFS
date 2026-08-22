@@ -13,8 +13,15 @@ use crate::cli::{Cli, Command};
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // `info` rather than the `ERROR`-only default an empty `RUST_LOG` gives, because
+    // that default made the daemon start in silence: no "admin listening on", no
+    // "replication enabled", and — worst of the three — no warning that
+    // trust-on-first-use would pin whichever key connected first. `RUST_LOG` still
+    // overrides, so anything quieter or louder is one env var away.
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
         .init();
 
     let cli = Cli::parse();
