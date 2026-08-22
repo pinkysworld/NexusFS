@@ -356,3 +356,311 @@ fn verify_notices_content_it_cannot_read() {
     assert!(!report.ok(), "a missing chunk must fail verification");
     assert_eq!(report.unreadable_files, vec!["/f.txt".to_string()]);
 }
+
+// ---- per-recipient sealing ---------------------------------------------------------
+//
+// The property these exist for: with recipients, a peer that holds the ciphertext and
+// every stored record but no envelope addressed to it genuinely cannot read the content.
+// That is the difference between "encrypted at rest" and "one peer protected from
+// another", and it is the whole reason envelopes were built.
+
+/// A node that encrypts and seals to recipients, with `identity`'s sealing key.
+fn sealing_node(
+    path: &std::path::Path,
+    device: u128,
+    identity: &Identity,
+) -> nexusfs_core::CoreState {
+    bootstrapped(path, device)
+        .with_encryption(Arc::new(RepoCipher::new([9u8; 32])))
+        .with_sealing_key(identity.sealing_secret())
+}
+
+#[test]
+fn a_write_seals_to_this_device_so_it_can_read_its_own_content() {
+    // The failure this must never introduce: writing content the writer cannot read.
+    let dir = tempfile::tempdir().unwrap();
+    let id = Identity::generate();
+    let core = sealing_node(dir.path(), 0x01, &id);
+
+    core.write_file(&id, "/s.txt", b"only me", now_ms())
+        .unwrap();
+    assert_eq!(core.read_file_path("/s.txt").unwrap(), b"only me");
+
+    let (inode, _, _) = core.stat_file("/s.txt").unwrap().unwrap();
+    let node_hash = core
+        .load_inode(inode)
+        .unwrap()
+        .unwrap()
+        .content
+        .value
+        .node_hash
+        .unwrap();
+    let Some(Object::FileNode(file)) = core.get_object(&node_hash).unwrap() else {
+        panic!("expected a file node");
+    };
+    let enc = file.encryption.expect("the file should be encrypted");
+    assert_eq!(enc.recipients.len(), 1, "sealed to this device alone");
+    assert!(
+        enc.sealed_key.is_none(),
+        "the repository key is not used once there are recipients"
+    );
+}
+
+#[test]
+fn an_enrolled_peer_becomes_a_recipient_and_a_stranger_does_not() {
+    let dir = tempfile::tempdir().unwrap();
+    let writer_id = Identity::generate();
+    let friend = Identity::generate();
+    let stranger = Identity::generate();
+
+    let core = sealing_node(dir.path(), 0x01, &writer_id);
+    core.enrol_peer(
+        nexusfs_proto::DeviceId(0xB2),
+        &friend.pubkey_bytes(),
+        Some(&friend.sealing_pubkey()),
+        false,
+    )
+    .unwrap();
+
+    core.write_file(&writer_id, "/shared.txt", b"for us two", now_ms())
+        .unwrap();
+
+    let (inode, _, _) = core.stat_file("/shared.txt").unwrap().unwrap();
+    let node_hash = core
+        .load_inode(inode)
+        .unwrap()
+        .unwrap()
+        .content
+        .value
+        .node_hash
+        .unwrap();
+    let Some(Object::FileNode(file)) = core.get_object(&node_hash).unwrap() else {
+        panic!("expected a file node");
+    };
+    let enc = file.encryption.clone().unwrap();
+    assert_eq!(enc.recipients.len(), 2, "this device and the enrolled peer");
+
+    // The friend can open one of the envelopes; the stranger can open none. Checked at
+    // the crypto layer because that is the claim — no state, no store, just the key.
+    let opened: Vec<_> = enc
+        .recipients
+        .iter()
+        .filter_map(|e| nexusfs_crypto::envelope::open(friend.sealing_secret(), e).ok())
+        .collect();
+    assert_eq!(opened.len(), 1, "exactly one envelope is the friend's");
+
+    let stranger_opened = enc
+        .recipients
+        .iter()
+        .any(|e| nexusfs_crypto::envelope::open(stranger.sealing_secret(), e).is_ok());
+    assert!(!stranger_opened, "a stranger opens nothing");
+}
+
+#[test]
+fn a_replica_that_is_not_a_recipient_holds_the_bytes_and_cannot_read_them() {
+    // The end-to-end version of the claim, through the real read path rather than the
+    // crypto layer: every stored record present, and the file still unreadable.
+    let writer_dir = tempfile::tempdir().unwrap();
+    let reader_dir = tempfile::tempdir().unwrap();
+    let writer_id = Identity::generate();
+    let outsider = Identity::generate();
+
+    let writer = sealing_node(writer_dir.path(), 0x01, &writer_id);
+    writer
+        .write_file(&writer_id, "/s.txt", b"not for you", now_ms())
+        .unwrap();
+
+    // A second node with the *same repository key* — which under the old scheme would
+    // have been enough — but not a recipient.
+    let reader = bootstrapped(reader_dir.path(), 0x02)
+        .with_encryption(Arc::new(RepoCipher::new([9u8; 32])))
+        .with_sealing_key(outsider.sealing_secret());
+
+    // Content first, then operations. The other order parks every write for missing
+    // chunks, and a parked write has no content — so the read would come back *empty*
+    // rather than refused, which would test the wrong thing entirely.
+    for (hash, _) in writer.stores.blobs.list().unwrap() {
+        let bytes = writer.stores.blobs.get(&hash).unwrap().unwrap();
+        reader.stores.blobs.put(hash, &bytes).unwrap();
+    }
+    for op in writer.all_ops().unwrap() {
+        reader.apply_op(&op).unwrap();
+    }
+    assert_eq!(
+        reader.pending_count().unwrap(),
+        0,
+        "nothing should be parked"
+    );
+
+    assert!(
+        reader.stat_file("/s.txt").unwrap().is_some(),
+        "the namespace replicated, so the file is known to exist"
+    );
+    let err = reader.read_file_path("/s.txt").unwrap_err();
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("not a recipient"),
+        "the error should say why, got: {msg}"
+    );
+}
+
+#[test]
+fn a_node_with_no_sealing_key_still_uses_the_repository_key() {
+    // The fallback, and the only path that still produces a repository-key-sealed file:
+    // a `CoreState` built without a sealing key at all.
+    let dir = tempfile::tempdir().unwrap();
+    let core = encrypted_node(dir.path(), 0x03, [9u8; 32]);
+    let id = Identity::generate();
+
+    core.write_file(&id, "/s.txt", b"old scheme", now_ms())
+        .unwrap();
+    assert_eq!(core.read_file_path("/s.txt").unwrap(), b"old scheme");
+
+    let (inode, _, _) = core.stat_file("/s.txt").unwrap().unwrap();
+    let node_hash = core
+        .load_inode(inode)
+        .unwrap()
+        .unwrap()
+        .content
+        .value
+        .node_hash
+        .unwrap();
+    let Some(Object::FileNode(file)) = core.get_object(&node_hash).unwrap() else {
+        panic!("expected a file node");
+    };
+    let enc = file.encryption.unwrap();
+    assert!(enc.recipients.is_empty());
+    assert!(enc.sealed_key.is_some());
+}
+
+#[test]
+fn a_repository_key_file_stays_readable_after_sealing_is_switched_on() {
+    // Upgrading a node must not strand what it already wrote.
+    let dir = tempfile::tempdir().unwrap();
+    let id = Identity::generate();
+
+    {
+        let before = encrypted_node(dir.path(), 0x04, [9u8; 32]);
+        before
+            .write_file(&id, "/old.txt", b"written before", now_ms())
+            .unwrap();
+    }
+
+    let after = bootstrapped(dir.path(), 0x04)
+        .with_encryption(Arc::new(RepoCipher::new([9u8; 32])))
+        .with_sealing_key(id.sealing_secret());
+    assert_eq!(after.read_file_path("/old.txt").unwrap(), b"written before");
+
+    // And new writes use the new scheme, side by side with the old file.
+    after
+        .write_file(&id, "/new.txt", b"written after", now_ms())
+        .unwrap();
+    assert_eq!(after.read_file_path("/new.txt").unwrap(), b"written after");
+    assert_eq!(after.read_file_path("/old.txt").unwrap(), b"written before");
+}
+
+#[test]
+fn resealing_lets_a_newly_enrolled_peer_read_what_came_before() {
+    // The gap `share` exists to close: enrolment makes a peer a recipient of what comes
+    // *after* it, and files already on disk carry the old envelope set.
+    let dir = tempfile::tempdir().unwrap();
+    let writer_id = Identity::generate();
+    let latecomer = Identity::generate();
+    let core = sealing_node(dir.path(), 0x01, &writer_id);
+
+    core.write_file(&writer_id, "/early.txt", b"written first", now_ms())
+        .unwrap();
+
+    let node_hash_of = |path: &str| {
+        let (inode, _, _) = core.stat_file(path).unwrap().unwrap();
+        core.load_inode(inode)
+            .unwrap()
+            .unwrap()
+            .content
+            .value
+            .node_hash
+            .unwrap()
+    };
+    let opens_for = |hash, id: &Identity| {
+        let Some(Object::FileNode(file)) = core.get_object(&hash).unwrap() else {
+            panic!("expected a file node");
+        };
+        file.encryption
+            .unwrap()
+            .recipients
+            .iter()
+            .any(|e| nexusfs_crypto::envelope::open(id.sealing_secret(), e).is_ok())
+    };
+
+    assert!(!opens_for(node_hash_of("/early.txt"), &latecomer));
+
+    core.enrol_peer(
+        nexusfs_proto::DeviceId(0xB2),
+        &latecomer.pubkey_bytes(),
+        Some(&latecomer.sealing_pubkey()),
+        false,
+    )
+    .unwrap();
+
+    // A survey changes nothing.
+    let survey = core
+        .reseal_to_recipients(&writer_id, now_ms(), true)
+        .unwrap();
+    assert_eq!(survey.resealed, 1);
+    assert!(!opens_for(node_hash_of("/early.txt"), &latecomer));
+
+    let done = core
+        .reseal_to_recipients(&writer_id, now_ms(), false)
+        .unwrap();
+    assert_eq!(done.resealed, 1);
+    assert!(opens_for(node_hash_of("/early.txt"), &latecomer));
+
+    // The content is unchanged and still readable by the writer.
+    assert_eq!(core.read_file_path("/early.txt").unwrap(), b"written first");
+}
+
+#[test]
+fn resealing_twice_finds_nothing_to_do() {
+    let dir = tempfile::tempdir().unwrap();
+    let id = Identity::generate();
+    let core = sealing_node(dir.path(), 0x01, &id);
+    core.write_file(&id, "/a.txt", b"x", now_ms()).unwrap();
+
+    core.reseal_to_recipients(&id, now_ms(), false).unwrap();
+    let again = core.reseal_to_recipients(&id, now_ms(), true).unwrap();
+    assert_eq!(
+        again.resealed, 0,
+        "already sealed to exactly these recipients"
+    );
+    assert_eq!(again.already_current, 1);
+}
+
+#[test]
+fn resealing_skips_files_this_node_cannot_read() {
+    // A node that is not a recipient has no file key to re-seal with. That is a count,
+    // not a failure: one such file must not stop the rest of the run.
+    let writer_dir = tempfile::tempdir().unwrap();
+    let reader_dir = tempfile::tempdir().unwrap();
+    let writer_id = Identity::generate();
+    let outsider = Identity::generate();
+
+    let writer = sealing_node(writer_dir.path(), 0x01, &writer_id);
+    writer
+        .write_file(&writer_id, "/s.txt", b"not for you", now_ms())
+        .unwrap();
+
+    let reader = bootstrapped(reader_dir.path(), 0x02).with_sealing_key(outsider.sealing_secret());
+    for (hash, _) in writer.stores.blobs.list().unwrap() {
+        let bytes = writer.stores.blobs.get(&hash).unwrap().unwrap();
+        reader.stores.blobs.put(hash, &bytes).unwrap();
+    }
+    for op in writer.all_ops().unwrap() {
+        reader.apply_op(&op).unwrap();
+    }
+
+    let report = reader
+        .reseal_to_recipients(&outsider, now_ms(), true)
+        .unwrap();
+    assert_eq!(report.unreadable, 1);
+    assert_eq!(report.resealed, 0);
+}

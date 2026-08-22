@@ -30,14 +30,18 @@
 use anyhow::{bail, Result};
 use tracing::info;
 
-use crate::state::{CoreState, CF_META};
+use crate::state::{CoreState, CF_META, CF_OPLOG, OP_PREFIX};
 
 /// The format this build reads and writes.
 ///
 /// v2 replaced the flat inode-map commitment with a Merkle root. Nothing stored changed
 /// shape — the state root is derived — but its *value* did, and two builds that disagree
 /// on the state root would never converge. That is what the stamp is for.
-pub const CURRENT_FORMAT_VERSION: u32 = 2;
+///
+/// v3 changed how a file's content key is protected: one blob sealed with a repository
+/// key became a list of envelopes, one per recipient. That *is* a shape change, in both
+/// stored `FileNode`s and the `Write` operations that produced them.
+pub const CURRENT_FORMAT_VERSION: u32 = 3;
 
 /// The version an unstamped repository is taken to be. Never changes: it names the
 /// format that existed before the stamp did, not the current one.
@@ -195,6 +199,62 @@ impl CoreState {
             self.build_snapshot()?;
             return self.set_format_version(2);
         }
+        if from == 2 {
+            return self.migrate_v2_to_v3();
+        }
         bail!("no migration is implemented from on-disk format v{from}")
+    }
+
+    /// v2 -> v3: per-recipient sealing changed the shape of `FileEncryption`.
+    ///
+    /// Nothing can be rewritten. A `FileNode` is content-addressed, so re-encoding one
+    /// changes its hash, the inode map, and the state root; and an operation is
+    /// *signed*, so re-encoding a `Write` invalidates the signature that makes it
+    /// acceptable to any peer. There is no honest in-place upgrade for records that
+    /// changed shape.
+    ///
+    /// What saves the common case is that only *encrypted* records changed. A plaintext
+    /// file carries `encryption: None`, and postcard writes `None` as a single zero byte
+    /// whatever it wraps — so every unencrypted record is byte-identical across the two
+    /// formats, and a repository that never turned encryption on migrates by moving the
+    /// stamp.
+    ///
+    /// A repository that *did* is refused, with the reason. Silently stamping it would
+    /// leave objects that no longer decode, discovered later as an unreadable file.
+    fn migrate_v2_to_v3(&self) -> Result<()> {
+        info!("migrating to on-disk format v3: checking for content sealed the old way");
+
+        // Two places carry the shape that changed, and only these two. Not every blob:
+        // a chunk is opaque bytes that never decodes as an object, so testing the whole
+        // store would call every repository unmigratable.
+        let mut stale = 0usize;
+
+        // Live file objects, reached through the maintained inode map — which is its own
+        // record type and decodes regardless.
+        for (_, hash) in self.inode_map()? {
+            if self.get_object(&hash).is_err() {
+                stale += 1;
+            }
+        }
+
+        // And the operations that produced them. A `Write` carries the same record, and
+        // the oplog is what a peer would replay.
+        for (_, bytes) in self.stores.kv.scan_prefix(CF_OPLOG, OP_PREFIX)? {
+            if crate::codec::decode::<nexusfs_proto::FsOp>(&bytes).is_err() {
+                stale += 1;
+            }
+        }
+
+        if stale > 0 {
+            bail!(
+                "this repository holds {stale} record(s) written with the v2 encryption \
+                 format, which cannot be upgraded in place: a `FileNode` is named by its \
+                 own hash and a `Write` operation is signed, so neither can be re-encoded \
+                 without invalidating what refers to it. Copy the content out with a v2 \
+                 build and write it into a fresh v3 repository."
+            );
+        }
+
+        self.set_format_version(3)
     }
 }

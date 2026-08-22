@@ -18,7 +18,7 @@ use crate::inode::{dot_for_op, inode_for_op, ROOT_INODE};
 use crate::namespace::{
     validate_name, AttrState, ContentState, DirEntryValue, InodeRecord, CF_STATE,
 };
-use crate::object::EntryType;
+use crate::object::{EntryType, FileEncryption};
 use crate::state::{CoreState, CF_OPLOG};
 
 const PENDING_PREFIX: &[u8] = b"pending\0";
@@ -400,7 +400,7 @@ impl CoreState {
         offset: u64,
         chunks: &[ChunkRef],
         new_size: u64,
-        encryption: Option<Vec<u8>>,
+        encryption: Option<FileEncryption>,
     ) -> Result<Mutation> {
         let Some(mut record) = self.load_inode(inode)? else {
             return Ok(Mutation::Unmet(format!("inode {inode:x} does not exist")));
@@ -438,12 +438,7 @@ impl CoreState {
         // no bytes have to be read back to build it. Note the chunks are stored exactly
         // as received — encrypted content is never decrypted just to re-record it.
         let node_hash = if offset == 0 && chunks_form_whole_file(chunks, new_size) {
-            self.make_filenode(
-                chunks.to_vec(),
-                new_size,
-                op.time_unix_ms,
-                encryption.map(|sealed_key| crate::object::FileEncryption { sealed_key }),
-            )?
+            self.make_filenode(chunks.to_vec(), new_size, op.time_unix_ms, encryption)?
         } else {
             // Partial write: we must splice, which needs the existing bytes and the
             // incoming bytes locally. If either is missing, park the op.

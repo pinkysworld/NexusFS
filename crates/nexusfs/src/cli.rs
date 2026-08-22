@@ -131,6 +131,20 @@ pub enum Command {
         action: PeerAction,
     },
 
+    /// Re-seal existing encrypted files to the peers enrolled now.
+    ///
+    /// Enrolling a peer makes it a recipient of everything written afterwards; this
+    /// brings files already on disk up to date. It grants access and never withdraws
+    /// it — the ciphertext does not change, so anyone who already held a key still
+    /// holds it.
+    Share {
+        #[arg(long)]
+        config: PathBuf,
+        /// Actually re-seal. Without this, report what would be done.
+        #[arg(long)]
+        apply: bool,
+    },
+
     /// Move or rename an entry.
     Mv {
         #[arg(long)]

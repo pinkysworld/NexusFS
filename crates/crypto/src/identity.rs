@@ -241,11 +241,11 @@ mod tests {
         let mallory = Identity::generate();
         let file_key = [7u8; 32];
 
-        let env = crate::envelope::seal(alice.sealing_pubkey(), &file_key, b"aad").unwrap();
+        let env = crate::envelope::seal(alice.sealing_pubkey(), &file_key).unwrap();
         assert_eq!(
-            crate::envelope::open(alice.sealing_secret(), &env, b"aad").unwrap(),
+            crate::envelope::open(alice.sealing_secret(), &env).unwrap(),
             file_key
         );
-        assert!(crate::envelope::open(mallory.sealing_secret(), &env, b"aad").is_err());
+        assert!(crate::envelope::open(mallory.sealing_secret(), &env).is_err());
     }
 }

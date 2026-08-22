@@ -7,24 +7,13 @@ use nexusfs_storage::Hash;
 
 /// Chunk references are defined in `proto` because operations carry them over the
 /// wire; re-exported here so object-model code has one obvious import path.
-pub use nexusfs_proto::types::ChunkRef;
+pub use nexusfs_proto::types::{ChunkRef, FileEncryption};
 
 /// Versioned object header to allow safe upgrades.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObjectHeader {
     pub type_tag: u16,
     pub version: u16,
-}
-
-/// Key material for an encrypted file, stored with the file itself.
-///
-/// Travelling inside the `FileNode` means the key replicates with the content and
-/// needs no side channel — a node holding the repository key can read a file the
-/// moment it arrives.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FileEncryption {
-    /// The file key, sealed with the repository key.
-    pub sealed_key: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

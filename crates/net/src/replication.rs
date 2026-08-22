@@ -4,13 +4,19 @@ use nexusfs_proto::{BuildInfo, DeviceId, MessageEnvelope, Msg};
 use rand::RngCore;
 
 /// Protocol version (v0).
-/// Bumped for v2's Merkle state commitment.
+/// Bumped for v2's Merkle state commitment, and again for v3's per-recipient sealing.
 ///
-/// The wire format did not change, but the meaning of a state root did. Two peers on
+/// v2's wire format did not change, but the meaning of a state root did. Two peers on
 /// different versions would sync operations happily and then report different roots
 /// forever, which looks like corruption. Refusing the handshake says what is actually
 /// wrong.
-pub const PROTOCOL_VERSION: u16 = 2;
+///
+/// v3 does change the wire format: a `Write` carrying encrypted content now describes
+/// how its file key is protected in a different shape. Unencrypted operations are
+/// byte-identical across the two, so the failure a mismatched pair would hit is narrow
+/// and would look like sporadic decode errors on some files and not others — worse to
+/// diagnose than a refused handshake, not better.
+pub const PROTOCOL_VERSION: u16 = 3;
 
 /// Max message size accepted (bytes).
 pub const MAX_FRAME_LEN: usize = 8 * 1024 * 1024;

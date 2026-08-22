@@ -47,6 +47,7 @@ async fn main() -> Result<()> {
         Command::Gc { config, apply } => fsops::run_gc(config, apply).await,
         Command::Migrate { config } => fsops::run_migrate(config).await,
         Command::Peer { action } => fsops::run_peer(action).await,
+        Command::Share { config, apply } => fsops::run_share(config, apply).await,
         Command::Prove {
             config,
             path,

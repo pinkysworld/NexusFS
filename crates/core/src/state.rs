@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use tracing::info;
 
 use nexusfs_crdt::conflicts;
@@ -26,7 +26,7 @@ const KEY_STATE_ROOT: &[u8] = b"state/root";
 const KEY_STATE_TIME: &[u8] = b"state/time";
 
 /// Column-family prefix keys for oplog entries.
-const OP_PREFIX: &[u8] = b"op\0";
+pub(crate) const OP_PREFIX: &[u8] = b"op\0";
 
 /// Cap on the per-device "held above the watermark" list in a clock summary.
 ///
@@ -115,6 +115,13 @@ pub struct CoreState {
     /// itself, so a node can read plaintext files it wrote before encryption was
     /// switched on.
     pub cipher: Option<Arc<RepoCipher>>,
+    /// This node's X25519 secret: what seals content to itself and opens what others
+    /// sealed to it.
+    ///
+    /// Held here rather than being passed per call because both the write path and the
+    /// read path need it, and a node that could write content it cannot read back would
+    /// be a very quiet way to lose data.
+    pub sealing_secret: Option<[u8; 32]>,
     /// How this node treats proofs on operations it creates and receives.
     pub proofs: crate::proof::ProofPolicy,
 }
@@ -126,6 +133,7 @@ impl CoreState {
             device_id,
             chunk_size: 1024 * 1024,
             cipher: None,
+            sealing_secret: None,
             proofs: crate::proof::ProofPolicy::None,
         }
     }
@@ -142,8 +150,41 @@ impl CoreState {
         self
     }
 
+    /// Supply this node's X25519 secret, so it can seal to itself and open envelopes.
+    pub fn with_sealing_key(mut self, secret: [u8; 32]) -> Self {
+        self.sealing_secret = Some(secret);
+        self
+    }
+
     pub fn encryption_enabled(&self) -> bool {
         self.cipher.is_some()
+    }
+
+    /// This node's own sealing public key, when it has one.
+    pub fn sealing_pubkey(&self) -> Option<[u8; 32]> {
+        self.sealing_secret
+            .map(nexusfs_crypto::envelope::public_from_secret)
+    }
+
+    /// Who a newly written file key should be sealed to.
+    ///
+    /// This node first, then every enrolled peer that has a sealing key. Including
+    /// ourselves is not a nicety: without it a node would write content it could not
+    /// read back, which is the failure this whole mechanism must not introduce.
+    ///
+    /// An empty result means per-recipient sealing is not available — no sealing key
+    /// configured — and the caller falls back to the repository key.
+    pub fn sealing_recipient_keys(&self) -> Result<Vec<[u8; 32]>> {
+        let Some(own) = self.sealing_pubkey() else {
+            return Ok(Vec::new());
+        };
+        let mut keys = vec![own];
+        for (_, key) in self.sealing_recipients()? {
+            if !keys.contains(&key) {
+                keys.push(key);
+            }
+        }
+        Ok(keys)
     }
 
     /// The address an object would have, without storing it.
@@ -457,8 +498,39 @@ impl CoreState {
             plaintext_offset += plain.len() as u64;
         }
 
-        let sealed_key = cipher.seal_file_key(&file_key)?;
-        Ok((refs, Some(FileEncryption { sealed_key })))
+        Ok((refs, Some(self.protect_file_key(&file_key, cipher)?)))
+    }
+
+    /// Seal `file_key` so the intended readers, and only they, can recover it.
+    ///
+    /// Per-recipient envelopes when this node has a sealing key, which is every node
+    /// now: the key is derived from the identity, so the only way to lack one is to be
+    /// a `CoreState` built without it. The repository key remains the fallback for
+    /// exactly that case, and for nothing else — no new write produces one otherwise.
+    fn protect_file_key(&self, file_key: &[u8; 32], cipher: &RepoCipher) -> Result<FileEncryption> {
+        let recipients = self.sealing_recipient_keys()?;
+        if recipients.is_empty() {
+            return Ok(FileEncryption {
+                sealed_key: Some(cipher.seal_file_key(file_key)?),
+                recipients: Vec::new(),
+                recipients_digest: None,
+            });
+        }
+
+        let sealed = recipients
+            .iter()
+            .map(|key| nexusfs_crypto::envelope::seal(*key, file_key))
+            .collect::<Result<Vec<_>>>()
+            .context("seal the file key to its recipients")?;
+
+        Ok(FileEncryption {
+            sealed_key: None,
+            recipients: sealed,
+            recipients_digest: Some(nexusfs_crypto::envelope::recipients_digest(
+                file_key,
+                &recipients,
+            )),
+        })
     }
 
     pub fn make_filenode_with_refs(

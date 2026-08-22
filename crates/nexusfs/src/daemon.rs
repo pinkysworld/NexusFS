@@ -516,10 +516,15 @@ pub(crate) fn open_core(cfg: &Config) -> Result<(CoreState, Identity, String)> {
 
     // Device id: store a persistent random u128 in KV if absent.
     let device_id = load_or_create_device_id(&stores)?;
-    let mut core = CoreState::new(stores, device_id);
+    // The sealing key is supplied unconditionally, not only when encryption is on: it
+    // is what opens content *others* sealed to this device, and a node that replicates
+    // an encrypted file from a peer must be able to read it whether or not it would
+    // have encrypted its own writes.
+    let mut core = CoreState::new(stores, device_id).with_sealing_key(identity.sealing_secret());
 
-    // At-rest encryption. The repository key sits beside the identity; anyone who can
-    // read it can read every chunk, so it is written owner-only.
+    // At-rest encryption. New writes seal the file key to each enrolled recipient, so
+    // the repository key is needed only to read files written before that existed —
+    // it is still loaded, because those files must keep working.
     if cfg.security.encrypt_at_rest {
         let key_path = data_dir.join("repo.key");
         let cipher = nexusfs_crypto::RepoCipher::load_or_create(&key_path)

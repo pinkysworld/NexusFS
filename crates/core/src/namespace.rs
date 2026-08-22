@@ -14,7 +14,7 @@ use nexusfs_storage::Hash;
 
 use crate::codec::{decode, encode};
 use crate::inode::ROOT_INODE;
-use crate::object::{DirEntry, EntryType, FileNode, Object};
+use crate::object::{DirEntry, EntryType, FileEncryption, FileNode, Object};
 use crate::state::CoreState;
 
 pub const CF_STATE: &str = "state";
@@ -361,19 +361,55 @@ impl CoreState {
         self.materialize_file(&file)
     }
 
+    /// Recover a file's content key from however it was protected.
+    ///
+    /// Envelopes first, because that is what new writes produce and what a node holding
+    /// no repository key can use at all. A reader trials its own X25519 secret against
+    /// each one: most are addressed to somebody else and fail, which is expected and
+    /// cheap, and the file never has to say who its readers are.
+    ///
+    /// The repository key is the fallback, for files written before per-recipient
+    /// sealing existed. Both being absent means the file is readable by nobody here, and
+    /// the error says which of the two reasons applies — "this node is not a recipient"
+    /// and "this node has no repository key" send an operator to very different places.
+    pub(crate) fn recover_file_key(&self, info: &FileEncryption) -> Result<[u8; 32]> {
+        if !info.recipients.is_empty() {
+            if let Some(secret) = self.sealing_secret {
+                for envelope in &info.recipients {
+                    if let Ok(key) = nexusfs_crypto::envelope::open(secret, envelope) {
+                        return key.try_into().map_err(|_| {
+                            anyhow::anyhow!("unsealed file key has the wrong length")
+                        });
+                    }
+                }
+            }
+        }
+
+        if let Some(sealed) = &info.sealed_key {
+            let cipher = self.cipher.as_ref().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "file was sealed with a repository key and this node has none configured"
+                )
+            })?;
+            return cipher.open_file_key(sealed);
+        }
+
+        if info.recipients.is_empty() {
+            bail!("file is marked encrypted but carries no way to recover its key");
+        }
+        bail!(
+            "this node is not a recipient of this file: {} envelope(s), none of which \
+             open with this device's sealing key",
+            info.recipients.len()
+        )
+    }
+
     /// Fetch and concatenate a `FileNode`'s chunks, verifying layout as it goes.
     pub fn materialize_file(&self, file: &FileNode) -> Result<Vec<u8>> {
         // Whether a file is encrypted is recorded on the file, not on the node, so a
         // node reads its own older plaintext files unchanged after enabling encryption.
         let file_key = match &file.encryption {
-            Some(info) => {
-                let cipher = self.cipher.as_ref().ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "file is encrypted but this node has no repository key configured"
-                    )
-                })?;
-                Some(cipher.open_file_key(&info.sealed_key)?)
-            }
+            Some(info) => Some(self.recover_file_key(info)?),
             None => None,
         };
 

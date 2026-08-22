@@ -111,7 +111,7 @@ pub fn write_all(core: &CoreState, inode: u128, data: &[u8]) -> FsOpKind {
         offset: 0,
         chunks,
         new_size: data.len() as u64,
-        encryption: encryption.map(|e| e.sealed_key),
+        encryption,
     }
 }
 

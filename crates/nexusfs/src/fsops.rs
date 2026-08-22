@@ -184,6 +184,50 @@ pub async fn run_gc(config_path: PathBuf, apply: bool) -> Result<()> {
     Ok(())
 }
 
+/// Re-seal existing encrypted files to the peers enrolled now.
+pub async fn run_share(config_path: PathBuf, apply: bool) -> Result<()> {
+    let (core, identity) = open_repo(&config_path)?;
+    let recipients = core.sealing_recipient_keys()?;
+    let report = core.reseal_to_recipients(&identity, nexusfs_core::now_ms(), !apply)?;
+
+    println!("recipients:     {} (this node included)", recipients.len());
+    println!("files scanned:  {}", report.files_scanned);
+    println!("  plaintext:    {}", report.plaintext);
+    println!("  up to date:   {}", report.already_current);
+    println!("  to re-seal:   {}", report.resealed);
+    if report.unreadable > 0 {
+        // Not an error: a node that is not itself a recipient cannot recover the file
+        // key, so it has nothing to re-seal with. Saying how many is more useful than
+        // stopping partway.
+        println!(
+            "  unreadable:   {} (this node is not a recipient)",
+            report.unreadable
+        );
+    }
+
+    if report.dry_run {
+        if report.resealed > 0 {
+            println!("\nnothing was written. Re-run with --apply to re-seal.");
+        } else {
+            println!("\nnothing to re-seal.");
+        }
+    } else {
+        println!(
+            "\nre-sealed {} file(s), one operation each",
+            report.resealed
+        );
+    }
+
+    // Said on every run, including the survey. An operator who reaches for this after
+    // *removing* a peer, believing it revokes, has done nothing at all.
+    println!(
+        "\nnote: this grants access and never withdraws it. The ciphertext is unchanged, \n\
+         so anyone who already held a key for these files still holds one. Withdrawing \n\
+         access means re-encrypting under fresh keys, which this does not do."
+    );
+    Ok(())
+}
+
 fn human_bytes(n: u64) -> String {
     const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
     let mut value = n as f64;

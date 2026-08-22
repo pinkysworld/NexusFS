@@ -43,11 +43,15 @@ pub enum FsOpKind {
         /// out the file from the oplog before fetching any blob.
         chunks: Vec<ChunkRef>,
         new_size: u64,
-        /// The file key, sealed with the repository key, when the chunks hold
-        /// ciphertext. Travels with the operation so a replica records the same
-        /// encryption state without a side channel.
+        /// How the file key is protected, when the chunks hold ciphertext. Travels
+        /// with the operation so a replica records the same encryption state without a
+        /// side channel — and, for per-recipient sealing, so each recipient's envelope
+        /// arrives with the write rather than needing to be asked for.
+        ///
+        /// Covered by the operation signature, which is what binds each envelope to
+        /// this particular write.
         #[serde(default)]
-        encryption: Option<Vec<u8>>,
+        encryption: Option<crate::types::FileEncryption>,
     },
     Rename {
         old_parent: u128,

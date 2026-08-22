@@ -41,8 +41,10 @@ fn an_unstamped_repository_is_adopted_as_version_one() {
     );
     assert_eq!(core.format_version().unwrap(), Some(1));
 
-    // And migrating carries it forward without touching the data.
-    assert_eq!(core.migrate().unwrap(), vec![CURRENT_FORMAT_VERSION]);
+    // And migrating carries it forward without touching the data, one step at a time
+    // rather than in a leap — a repository several versions behind runs each step in
+    // turn, and each only has to understand its immediate predecessor.
+    assert_eq!(core.migrate().unwrap(), vec![2, 3]);
     assert_eq!(core.check_format().unwrap(), FormatState::Current);
     assert_eq!(
         core.read_file_path("/a.txt").unwrap(),
@@ -71,13 +73,14 @@ fn migrating_to_v2_rebuilds_the_state_commitment() {
         .put_kv(CF_META, b"state/root", &[0u8; 32])
         .unwrap();
 
-    core.migrate().unwrap();
+    let steps = core.migrate().unwrap();
 
-    assert_eq!(core.format_version().unwrap(), Some(2));
+    assert_eq!(steps, vec![2, 3], "each step runs in turn");
+    assert_eq!(core.format_version().unwrap(), Some(CURRENT_FORMAT_VERSION));
     assert_eq!(
         core.get_state_root().unwrap(),
         Some(expected),
-        "the migration must recompute the commitment, not leave the stale one"
+        "the v2 step must recompute the commitment, not leave the stale one"
     );
     assert_eq!(core.read_file_path("/a.txt").unwrap(), b"content");
 }
@@ -164,4 +167,77 @@ fn the_stamp_survives_a_restart() {
     }
     let core = bootstrapped(dir.path(), 0xA1);
     assert_eq!(core.format_version().unwrap(), Some(CURRENT_FORMAT_VERSION));
+}
+
+#[test]
+fn migrating_to_v3_carries_an_unencrypted_repository_forward() {
+    // The common case, and the reason this migration is possible at all: a plaintext
+    // file records `encryption: None`, which postcard writes as a single zero byte
+    // whatever type it wraps. Every unencrypted record is therefore byte-identical
+    // across v2 and v3, and the migration is just the stamp.
+    let dir = tempfile::tempdir().unwrap();
+    let core = bootstrapped(dir.path(), 0xA1);
+    let id = Identity::generate();
+    core.mkdir_p(&id, "/docs", 1_000).unwrap();
+    core.write_file(&id, "/docs/a.txt", b"plaintext", 1_001)
+        .unwrap();
+
+    core.stores
+        .kv
+        .put_kv(CF_META, KEY, &2u32.to_be_bytes())
+        .unwrap();
+    assert_eq!(
+        core.check_format().unwrap(),
+        FormatState::NeedsMigration { found: 2 }
+    );
+
+    assert_eq!(core.migrate().unwrap(), vec![3]);
+    assert_eq!(core.check_format().unwrap(), FormatState::Current);
+    assert_eq!(core.read_file_path("/docs/a.txt").unwrap(), b"plaintext");
+    assert!(core.verify_repository().unwrap().ok());
+}
+
+#[test]
+fn migrating_to_v3_refuses_a_repository_holding_old_encrypted_records() {
+    // The case that cannot be upgraded in place, and must say so rather than stamp and
+    // leave objects nobody can decode. Posing as one: an operation record that does not
+    // decode under the current schema is exactly what a v2 encrypted `Write` becomes.
+    let dir = tempfile::tempdir().unwrap();
+    let core = bootstrapped(dir.path(), 0xA1);
+    let id = Identity::generate();
+    core.write_file(&id, "/a.txt", b"content", 1_000).unwrap();
+
+    let key = core
+        .stores
+        .kv
+        .scan_prefix_keys("oplog", b"op\0")
+        .unwrap()
+        .into_iter()
+        .next()
+        .expect("the write left an operation");
+    core.stores
+        .kv
+        .put_kv("oplog", &key, b"not a valid postcard FsOp at all")
+        .unwrap();
+
+    core.stores
+        .kv
+        .put_kv(CF_META, KEY, &2u32.to_be_bytes())
+        .unwrap();
+
+    let err = core.migrate().unwrap_err();
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("v2 encryption format"),
+        "the refusal should name the reason, got: {msg}"
+    );
+    assert!(
+        msg.contains("fresh v3 repository"),
+        "and what to do about it, got: {msg}"
+    );
+    assert_eq!(
+        core.format_version().unwrap(),
+        Some(2),
+        "a refused migration must not move the stamp"
+    );
 }

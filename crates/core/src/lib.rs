@@ -13,6 +13,7 @@ pub mod object;
 pub mod ops;
 pub mod peers;
 pub mod proof;
+pub mod share;
 pub mod snapshot;
 pub mod state;
 
@@ -29,5 +30,6 @@ pub use object::*;
 pub use ops::*;
 pub use peers::*;
 pub use proof::*;
+pub use share::*;
 pub use snapshot::*;
 pub use state::*;

@@ -186,7 +186,7 @@ fn a_partial_write_that_cannot_be_spliced_parks_instead_of_tearing_the_file() {
             offset: 4,
             chunks,
             new_size: 10,
-            encryption: encryption.map(|e| e.sealed_key),
+            encryption,
         },
     );
     core.apply_op(&partial).unwrap();
@@ -258,7 +258,7 @@ fn a_write_cannot_claim_more_content_than_it_supplies() {
             offset: 0,
             chunks,
             new_size: u64::MAX,
-            encryption: encryption.map(|e| e.sealed_key),
+            encryption,
         },
     );
 
@@ -310,7 +310,7 @@ fn a_sparse_write_past_the_end_still_works() {
             offset: 64,
             chunks,
             new_size: 68,
-            encryption: encryption.map(|e| e.sealed_key),
+            encryption,
         },
     ))
     .unwrap();
