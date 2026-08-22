@@ -1253,6 +1253,7 @@ dependencies = [
  "hex",
  "rand 0.8.5",
  "serde",
+ "tempfile",
  "toml",
  "x25519-dalek",
 ]

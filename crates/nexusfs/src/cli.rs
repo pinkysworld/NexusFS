@@ -162,6 +162,11 @@ pub enum PeerAction {
         device: String,
         /// ed25519 public key in hex (64 characters).
         pubkey: String,
+        /// X25519 sealing key in hex (64 characters), as printed by `peer identity`.
+        ///
+        /// Optional: a peer enrolled without one replicates and verifies normally, it
+        /// just cannot be made a recipient of newly written encrypted content.
+        seal_key: Option<String>,
         /// Replace an existing, different key. Required for a deliberate rotation.
         #[arg(long)]
         rotate: bool,

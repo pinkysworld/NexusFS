@@ -122,6 +122,8 @@ struct IdentityResp {
     device_id: String,
     /// Hex ed25519 public key, or `None` on a build that did not supply one.
     pubkey: Option<String>,
+    /// Hex X25519 sealing key. What a peer needs to seal content to this node.
+    seal_key: Option<String>,
     format_version: Option<u32>,
     /// The format this build expects, so a mismatch is visible without reading logs.
     expects_format: u32,
@@ -141,6 +143,7 @@ async fn identity(
     Ok(Json(IdentityResp {
         device_id: format!("{:x}", st.core.device_id.0),
         pubkey: st.node_pubkey.map(hex::encode),
+        seal_key: st.node_seal_key.map(hex::encode),
         format_version: st.core.format_version().map_err(server_error)?,
         expects_format: nexusfs_core::CURRENT_FORMAT_VERSION,
         build_version: env!("CARGO_PKG_VERSION"),
@@ -151,6 +154,10 @@ async fn identity(
 struct EnrolledPeerResp {
     device_id: String,
     pubkey: String,
+    /// `null` for a device enrolled before sealing keys existed. Such a peer replicates
+    /// and verifies normally but cannot receive newly written encrypted content, which
+    /// is a state worth showing rather than rendering as an empty string.
+    seal_key: Option<String>,
 }
 
 /// The keys this node has pinned.
@@ -171,6 +178,7 @@ async fn enrolled_peers(
             .map(|p| EnrolledPeerResp {
                 device_id: format!("{:x}", p.device_id.0),
                 pubkey: hex::encode(p.pubkey),
+                seal_key: p.seal_key.map(hex::encode),
             })
             .collect(),
     ))

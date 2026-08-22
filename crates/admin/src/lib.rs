@@ -88,6 +88,9 @@ pub struct AdminState {
     /// Passed in rather than read from an `Identity`, which would make this crate depend
     /// on `nexusfs-crypto` for one field. It is public key material by definition.
     pub node_pubkey: Option<[u8; 32]>,
+    /// This node's X25519 sealing key, which a peer needs in order to seal content to
+    /// it. Public by construction, same as the signing key beside it.
+    pub node_seal_key: Option<[u8; 32]>,
 }
 
 pub async fn serve(bind: SocketAddr, state: AdminState) -> Result<()> {

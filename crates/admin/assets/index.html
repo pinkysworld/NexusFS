@@ -326,6 +326,8 @@
       .link:hover { text-decoration: underline; }
 
       .dim { color: var(--text-dim); }
+      /* Text-level caution, for a table cell whose *absence* is the finding. */
+      .caution { color: var(--warn); }
       .faint { color: var(--text-faint); }
       .mono { font-family: var(--mono); }
       .nowrap { white-space: nowrap; }
@@ -593,14 +595,16 @@
             </div>
             <div class="table-wrap">
               <table>
-                <thead><tr><th>Device</th><th>Public key</th><th></th></tr></thead>
+                <thead><tr><th>Device</th><th>Public key</th><th>Sealing key</th><th></th></tr></thead>
                 <tbody id="enrolled"></tbody>
               </table>
             </div>
             <div class="card-note">
               Separate from the list above on purpose: a device can be trusted without
               being a sync target, and a sync target may not be trusted yet. Enrol with
-              <code>nexusfs peer add</code>.
+              <code>nexusfs peer add</code>. A peer with no sealing key replicates and
+              verifies normally, but cannot be a recipient of newly written encrypted
+              content.
             </div>
           </div>
 
@@ -614,6 +618,9 @@
                 <dt>Public key</dt>
                 <dd class="hash-row"><span class="hash" id="idPubkey">—</span>
                   <button class="ghost" data-copy="idPubkey">copy</button></dd>
+                <dt>Sealing key</dt>
+                <dd class="hash-row"><span class="hash" id="idSealKey">—</span>
+                  <button class="ghost" data-copy="idSealKey">copy</button></dd>
               </dl>
               <div>
                 <div class="dim" style="margin-bottom:6px;">Run this on the other node:</div>

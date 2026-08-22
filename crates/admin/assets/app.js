@@ -299,7 +299,7 @@
     setPill("trustCount", `${peers.length} pinned`, peers.length ? "ok" : "neutral");
 
     if (!peers.length) {
-      emptyRow(body, 3, "No keys pinned. With net.tofu on, the first peer seen is trusted.");
+      emptyRow(body, 4, "No keys pinned. With net.tofu on, the first peer seen is trusted.");
       return;
     }
 
@@ -307,10 +307,22 @@
       const row = body.insertRow();
       cell(row, shorten(p.device_id, 10), "mono nowrap");
       cell(row, shorten(p.pubkey, 10), "dim mono nowrap");
+      // Absence is the interesting case here, so it is spelled out rather than left
+      // as an empty cell: it is the difference between a peer that can read newly
+      // written encrypted content and one that cannot.
+      cell(
+        row,
+        p.seal_key ? shorten(p.seal_key, 10) : "none",
+        p.seal_key ? "dim mono nowrap" : "caution mono nowrap",
+      );
 
       const actions = row.insertCell();
       const copy = el("button", "ghost", "copy");
-      copy.onclick = () => copyText(`${p.device_id} ${p.pubkey}`, copy);
+      copy.onclick = () =>
+        copyText(
+          [p.device_id, p.pubkey, p.seal_key].filter(Boolean).join(" "),
+          copy,
+        );
       actions.appendChild(copy);
     }
   }
@@ -319,13 +331,16 @@
     const id = await getJson("/api/identity");
     setText("idDevice", id.device_id);
     setText("idPubkey", id.pubkey || "unavailable in this build");
+    setText("idSealKey", id.seal_key || "unavailable in this build");
     setText("deviceChip", shorten(id.device_id, 8));
     $("deviceChip").title = `Device ${id.device_id}`;
 
     setText(
       "enrolCmd",
       id.pubkey
-        ? `nexusfs peer add --config <peer-config> ${id.device_id} ${id.pubkey}`
+        ? `nexusfs peer add --config <peer-config> ${id.device_id} ${id.pubkey}${
+            id.seal_key ? ` ${id.seal_key}` : ""
+          }`
         : "unavailable in this build"
     );
 

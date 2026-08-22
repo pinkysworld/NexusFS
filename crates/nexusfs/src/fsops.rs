@@ -243,11 +243,13 @@ pub async fn run_peer(action: crate::cli::PeerAction) -> Result<()> {
             let (core, identity) = open_repo(&config)?;
             println!("device_id: {:x}", core.device_id.0);
             println!("pubkey:    {}", hex::encode(identity.pubkey_bytes()));
+            println!("seal_key:  {}", hex::encode(identity.sealing_pubkey()));
             println!("\nEnrol this node on a peer with:");
             println!(
-                "  nexusfs peer add --config <peer-config> {:x} {}",
+                "  nexusfs peer add --config <peer-config> {:x} {} {}",
                 core.device_id.0,
-                hex::encode(identity.pubkey_bytes())
+                hex::encode(identity.pubkey_bytes()),
+                hex::encode(identity.sealing_pubkey())
             );
             Ok(())
         }
@@ -260,7 +262,18 @@ pub async fn run_peer(action: crate::cli::PeerAction) -> Result<()> {
                 return Ok(());
             }
             for peer in peers {
-                println!("{:032x}  {}", peer.device_id.0, hex::encode(peer.pubkey));
+                // The sealing key's absence is worth showing: it is the difference
+                // between a peer that can read new encrypted content and one that
+                // cannot, and nothing else on this line reveals it.
+                println!(
+                    "{:032x}  {}  {}",
+                    peer.device_id.0,
+                    hex::encode(peer.pubkey),
+                    match peer.seal_key {
+                        Some(k) => hex::encode(k),
+                        None => "(no sealing key)".into(),
+                    }
+                );
             }
             Ok(())
         }
@@ -269,13 +282,15 @@ pub async fn run_peer(action: crate::cli::PeerAction) -> Result<()> {
             config,
             device,
             pubkey,
+            seal_key,
             rotate,
         } => {
             let (core, _identity) = open_repo(&config)?;
             let device = parse_device_id(&device)?;
             let key = parse_pubkey(&pubkey)?;
+            let seal = seal_key.as_deref().map(parse_pubkey).transpose()?;
 
-            match core.enrol_peer(device, &key, rotate)? {
+            match core.enrol_peer(device, &key, seal.as_ref(), rotate)? {
                 nexusfs_core::Enrolment::Added => println!("enrolled {:x}", device.0),
                 nexusfs_core::Enrolment::Unchanged => {
                     println!("{:x} was already enrolled with this key", device.0)
@@ -283,6 +298,13 @@ pub async fn run_peer(action: crate::cli::PeerAction) -> Result<()> {
                 nexusfs_core::Enrolment::Rotated => {
                     println!("rotated the key for {:x}", device.0)
                 }
+            }
+            if seal.is_none() {
+                println!(
+                    "note: no sealing key given, so this peer cannot be a recipient of \
+                     newly written encrypted content. Re-run with the seal_key from \
+                     `nexusfs peer identity` on that node to add one."
+                );
             }
             Ok(())
         }

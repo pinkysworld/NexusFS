@@ -40,7 +40,7 @@ pub fn authorize(
             device.0
         ),
         None if policy.tofu => {
-            core.enrol_peer(device, pubkey, false)?;
+            core.enrol_peer(device, pubkey, None, false)?;
             Ok(())
         }
         None => bail!(
